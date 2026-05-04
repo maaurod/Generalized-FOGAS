@@ -67,7 +67,8 @@ class RBFStateFeatures:
         sigma: Optional[Union[float, TensorLike]] = None,
         state_coords: Optional[TensorLike] = None,
         coord_fn: Optional[Callable[[int], TensorLike]] = None,
-        bandwidth: str = "median",
+        bandwidth: str = "nearest",
+        bandwidth_scale: float = 1.0,
         include_bias: bool = True,
         normalize: bool = False,
         dtype: torch.dtype = torch.float64,
@@ -98,7 +99,9 @@ class RBFStateFeatures:
         elif variance is not None:
             self.variance = self._expand_bandwidth(variance, "variance")
         else:
-            self.variance = self.infer_variance(self.centers, method=bandwidth).to(dtype=dtype)
+            self.variance = self.infer_variance(
+                self.centers, method=bandwidth, scale=bandwidth_scale
+            ).to(dtype=dtype)
 
         if torch.any(self.variance <= 0):
             raise ValueError("variance must be positive")
@@ -145,7 +148,7 @@ class RBFStateFeatures:
     @staticmethod
     def infer_variance(
         centers: TensorLike,
-        method: str = "median",
+        method: str = "nearest",
         scale: float = 1.0,
         dtype: torch.dtype = torch.float64,
     ) -> torch.Tensor:
