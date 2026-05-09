@@ -264,21 +264,21 @@ class ContinuousSBEED:
         decay = 1.0 / (1.0 + float(self.update_index) / self.tau)
         return float(base_lr * decay)
 
-    @staticmethod
-    def _parameters_are_finite(params: Iterable[torch.nn.Parameter]) -> bool:
+    def _parameters_are_finite(self, params: Iterable[torch.nn.Parameter]) -> bool:
         return all(torch.isfinite(param.detach()).all().item() for param in params)
 
-    @staticmethod
-    def _clone_param_data(params: Iterable[torch.nn.Parameter]) -> list[torch.Tensor]:
+    def _clone_param_data(self, params: Iterable[torch.nn.Parameter]) -> list[torch.Tensor]:
         return [param.detach().clone() for param in params]
 
-    @staticmethod
-    def _restore_param_data(params: Iterable[torch.nn.Parameter], snapshots: Iterable[torch.Tensor]) -> None:
+    def _restore_param_data(
+        self,
+        params: Iterable[torch.nn.Parameter],
+        snapshots: Iterable[torch.Tensor],
+    ) -> None:
         for param, snapshot in zip(params, snapshots):
             param.data.copy_(snapshot)
 
-    @staticmethod
-    def _reset_optimizer_buffers(optimizer: Optional[torch.optim.Optimizer]) -> None:
+    def _reset_optimizer_buffers(self, optimizer: Optional[torch.optim.Optimizer]) -> None:
         if optimizer is not None:
             optimizer.state.clear()
 
