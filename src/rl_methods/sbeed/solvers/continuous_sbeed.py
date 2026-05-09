@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import math
 import random
-from typing import Any, Dict, Iterable, Optional, Tuple, Union
+from typing import Any, Callable, Dict, Iterable, Optional, Tuple, Union
 
 import numpy as np
 import torch
@@ -130,6 +130,7 @@ class ContinuousSBEED:
         self.n = self.dataset.n
         self.update_index = 0
         self.last_episode_returns: list[float] = []
+        self.loss_history: list[Dict[str, float]] = []
         self._reset_optimizer_state()
 
     @staticmethod
@@ -772,6 +773,8 @@ class ContinuousSBEED:
         deterministic: bool = False,
         render: bool = False,
         log_every: int = 10,
+        eval_every_episodes: Optional[int] = None,
+        eval_callback: Optional[Callable[["ContinuousSBEED", int, Optional[Dict[str, float]]], Dict[str, Any]]] = None,
     ) -> Dict[str, Any]:
         try:
             import gymnasium as gym
@@ -795,6 +798,7 @@ class ContinuousSBEED:
         self.n = self.dataset.n
         self.update_index = 0
         self.last_episode_returns = []
+        self.loss_history = []
         self._reset_optimizer_state()
 
         reset_kwargs = {"seed": self.seed} if self.seed is not None else {}
@@ -811,8 +815,10 @@ class ContinuousSBEED:
         self._maybe_estimate_policy_nu()
 
         last_stats = None
+        eval_history: list[Dict[str, Any]] = []
         steps_per_episode = int(collect_per_episode if max_episode_steps is None else min(collect_per_episode, max_episode_steps))
         for episode in range(int(episodes)):
+            episode_number = episode + 1
             obs, returns = self._collect_env_steps(
                 env,
                 obs,
@@ -827,6 +833,18 @@ class ContinuousSBEED:
             if self.n > 0:
                 for _ in range(int(updates_per_episode)):
                     last_stats = self.step()
+                    self.loss_history.append(last_stats)
+
+            if (
+                eval_callback is not None
+                and eval_every_episodes is not None
+                and int(eval_every_episodes) > 0
+                and (episode_number % int(eval_every_episodes) == 0 or episode_number == int(episodes))
+            ):
+                eval_stats = eval_callback(self, episode_number, last_stats)
+                eval_stats["episode"] = int(episode_number)
+                eval_stats["update_index"] = int(self.update_index)
+                eval_history.append(eval_stats)
 
             if last_stats is not None and log_every > 0 and episode % int(log_every) == 0:
                 recent_returns = self.last_episode_returns[-10:]
@@ -844,6 +862,7 @@ class ContinuousSBEED:
             "last_stats": last_stats,
             "episode_returns": list(self.last_episode_returns),
             "buffer_size": int(self.n),
+            "eval_history": eval_history,
         }
 
     def value(self, observation: Union[np.ndarray, torch.Tensor]) -> torch.Tensor:
