@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 import random
 from typing import Any, Dict, Iterable, Optional, Tuple, Union
 
@@ -17,6 +18,8 @@ from ..datasets.continuous_sbeed_dataset import ContinuousSBEEDDataset
 class ContinuousSBEED:
     """Multi-step SBEED for continuous Gymnasium-style control problems."""
 
+    _LR_GROUPS = ("value", "rho", "policy")
+
     def __init__(
         self,
         obs_dim: int,
@@ -32,6 +35,9 @@ class ContinuousSBEED:
         lr_value: float = 1e-3,
         lr_rho: float = 1e-3,
         lr_policy: float = 1e-3,
+        lr_schedulers: Optional[Union[str, Iterable[str], Dict[str, Optional[str]]]] = None,
+        cosine_t_max: Optional[int] = None,
+        cosine_eta_min: Union[float, Dict[str, float]] = 0.0,
         tau: float = 1.0,
         max_buffer_size: int = 12000,
         batch_size: Optional[int] = 256,
@@ -55,6 +61,9 @@ class ContinuousSBEED:
         self.lr_value = float(lr_value)
         self.lr_rho = float(lr_rho)
         self.lr_policy = float(lr_policy)
+        self.lr_schedulers = self._parse_lr_schedulers(lr_schedulers)
+        self.cosine_t_max = None if cosine_t_max is None else int(cosine_t_max)
+        self.cosine_eta_min = self._parse_cosine_eta_min(cosine_eta_min)
         self.tau = float(tau)
         self.max_buffer_size = int(max_buffer_size)
         self.batch_size = batch_size
@@ -80,6 +89,13 @@ class ContinuousSBEED:
             raise ValueError("eta must be in [0, 1]")
         if self.lr_value <= 0.0 or self.lr_rho <= 0.0 or self.lr_policy <= 0.0:
             raise ValueError("lr_value, lr_rho, and lr_policy must be positive")
+        if self.cosine_t_max is not None and self.cosine_t_max <= 0:
+            raise ValueError("cosine_t_max must be positive when provided")
+        for name in self._LR_GROUPS:
+            eta_min = self.cosine_eta_min[name]
+            base_lr = getattr(self, f"lr_{name}")
+            if eta_min < 0.0 or eta_min > base_lr:
+                raise ValueError(f"cosine_eta_min for {name} must be in [0, lr_{name}]")
         if self.tau <= 0.0:
             raise ValueError("tau must be positive")
         if self.max_buffer_size <= 0:
@@ -140,6 +156,47 @@ class ContinuousSBEED:
             return buffer.dtype
         return fallback
 
+    @classmethod
+    def _parse_lr_schedulers(
+        cls,
+        lr_schedulers: Optional[Union[str, Iterable[str], Dict[str, Optional[str]]]],
+    ) -> Dict[str, str]:
+        schedules = {name: "inverse_time" for name in cls._LR_GROUPS}
+        if lr_schedulers is None:
+            return schedules
+        valid_schedules = {"inverse_time", "cosine", "none"}
+        if isinstance(lr_schedulers, str):
+            schedule = lr_schedulers.lower()
+            if schedule not in valid_schedules:
+                raise ValueError("lr_schedulers string must be one of: inverse_time, cosine, none")
+            return {name: schedule for name in cls._LR_GROUPS}
+        if isinstance(lr_schedulers, dict):
+            for name, schedule in lr_schedulers.items():
+                if name not in cls._LR_GROUPS:
+                    raise ValueError(f"unknown lr scheduler group: {name}")
+                schedule_name = "inverse_time" if schedule is None else str(schedule).lower()
+                if schedule_name not in valid_schedules:
+                    raise ValueError("lr scheduler values must be one of: inverse_time, cosine, none")
+                schedules[name] = schedule_name
+            return schedules
+        for name in lr_schedulers:
+            if name not in cls._LR_GROUPS:
+                raise ValueError(f"unknown lr scheduler group: {name}")
+            schedules[name] = "cosine"
+        return schedules
+
+    @classmethod
+    def _parse_cosine_eta_min(cls, cosine_eta_min: Union[float, Dict[str, float]]) -> Dict[str, float]:
+        if isinstance(cosine_eta_min, dict):
+            eta_min = {name: 0.0 for name in cls._LR_GROUPS}
+            for name, value in cosine_eta_min.items():
+                if name not in cls._LR_GROUPS:
+                    raise ValueError(f"unknown cosine_eta_min group: {name}")
+                eta_min[name] = float(value)
+            return eta_min
+        value = float(cosine_eta_min)
+        return {name: value for name in cls._LR_GROUPS}
+
     def _action_bound(self, value: Optional[Union[np.ndarray, torch.Tensor, float]]) -> Optional[torch.Tensor]:
         if value is None:
             return None
@@ -192,6 +249,51 @@ class ContinuousSBEED:
             return
         for group in optimizer.param_groups:
             group["lr"] = lr
+
+    def _learning_rate(self, name: str, base_lr: float) -> float:
+        schedule = self.lr_schedulers[name]
+        if schedule == "none":
+            return float(base_lr)
+        if schedule == "cosine":
+            t_max = self.cosine_t_max or max(1, int(self.tau))
+            schedule_step = max(0, int(self.update_index) - 1)
+            progress = min(float(schedule_step), float(t_max)) / float(t_max)
+            eta_min = self.cosine_eta_min[name]
+            cosine = 0.5 * (1.0 + math.cos(math.pi * progress))
+            return float(eta_min + (float(base_lr) - eta_min) * cosine)
+        decay = 1.0 / (1.0 + float(self.update_index) / self.tau)
+        return float(base_lr * decay)
+
+    @staticmethod
+    def _parameters_are_finite(params: Iterable[torch.nn.Parameter]) -> bool:
+        return all(torch.isfinite(param.detach()).all().item() for param in params)
+
+    @staticmethod
+    def _clone_param_data(params: Iterable[torch.nn.Parameter]) -> list[torch.Tensor]:
+        return [param.detach().clone() for param in params]
+
+    @staticmethod
+    def _restore_param_data(params: Iterable[torch.nn.Parameter], snapshots: Iterable[torch.Tensor]) -> None:
+        for param, snapshot in zip(params, snapshots):
+            param.data.copy_(snapshot)
+
+    @staticmethod
+    def _reset_optimizer_buffers(optimizer: Optional[torch.optim.Optimizer]) -> None:
+        if optimizer is not None:
+            optimizer.state.clear()
+
+    def _clamp_policy_distribution(self) -> None:
+        log_std = getattr(self.policy_param, "log_std", None)
+        if isinstance(log_std, torch.nn.Parameter):
+            log_std.data.clamp_(min=-20.0, max=2.0)
+
+    def _finite_action_fallback(self, action: torch.Tensor) -> torch.Tensor:
+        fallback = torch.zeros_like(action)
+        if self.action_low is not None and self.action_high is not None:
+            low = self.action_low.to(dtype=action.dtype, device=action.device)
+            high = self.action_high.to(dtype=action.dtype, device=action.device)
+            fallback = 0.5 * (low + high)
+        return torch.where(torch.isfinite(action), action, fallback)
 
     def _valid_fragment_starts(self) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         if self.n == 0:
@@ -321,6 +423,7 @@ class ContinuousSBEED:
     def _value_update(self, batch: Dict[str, torch.Tensor], step_size: float) -> float:
         if self.value_optimizer is None:
             return 0.0
+        params = self._trainable_params(self.value_param)
         dtype = self._param_dtype(self.value_param)
         with torch.no_grad():
             rho = self._rho_values(batch, dtype)
@@ -330,25 +433,46 @@ class ContinuousSBEED:
         bootstrap = self._bootstrap_values(batch, dtype)
         delta = rewards - self.lambda_entropy * log_pi + bootstrap
         loss = ((delta - V0) ** 2).mean() - self.eta * ((delta - rho) ** 2).mean()
+        if not torch.isfinite(loss):
+            return float("nan")
+        snapshots = self._clone_param_data(params)
         self._set_optimizer_lr(self.value_optimizer, step_size)
         self.value_optimizer.zero_grad(set_to_none=True)
         loss.backward()
-        grad_norm = self._flat_grad_norm(self._trainable_params(self.value_param))
+        grad_norm = self._flat_grad_norm(params)
+        if not math.isfinite(grad_norm):
+            self.value_optimizer.zero_grad(set_to_none=True)
+            return grad_norm
         self.value_optimizer.step()
+        if not self._parameters_are_finite(params):
+            self._restore_param_data(params, snapshots)
+            self._reset_optimizer_buffers(self.value_optimizer)
+            return float("nan")
         return grad_norm
 
     def _rho_update(self, batch: Dict[str, torch.Tensor], step_size: float) -> float:
         if self.rho_optimizer is None:
             return 0.0
+        params = self._trainable_params(self.rho_param)
         dtype = self._param_dtype(self.rho_param)
         target = self._target_delta_no_grad(batch, dtype)
         rho = self._rho_values(batch, dtype)
         loss = 0.5 * ((target - rho) ** 2).mean()
+        if not torch.isfinite(loss):
+            return float("nan")
+        snapshots = self._clone_param_data(params)
         self._set_optimizer_lr(self.rho_optimizer, step_size)
         self.rho_optimizer.zero_grad(set_to_none=True)
         loss.backward()
-        grad_norm = self._flat_grad_norm(self._trainable_params(self.rho_param))
+        grad_norm = self._flat_grad_norm(params)
+        if not math.isfinite(grad_norm):
+            self.rho_optimizer.zero_grad(set_to_none=True)
+            return grad_norm
         self.rho_optimizer.step()
+        if not self._parameters_are_finite(params):
+            self._restore_param_data(params, snapshots)
+            self._reset_optimizer_buffers(self.rho_optimizer)
+            return float("nan")
         return grad_norm
 
     def _policy_loss_and_grad(self, batch: Dict[str, torch.Tensor]) -> Tuple[torch.Tensor, float]:
@@ -367,6 +491,8 @@ class ContinuousSBEED:
             return torch.empty(0, dtype=dtype, device=self.device), 0.0
         log_pi = self._weighted_policy_log_probs(batch, dtype=dtype)
         loss = -2.0 * self.lambda_entropy * (advantage * log_pi).mean()
+        if not torch.isfinite(loss):
+            return torch.empty(0, dtype=dtype, device=self.device), float("nan")
         grads = torch.autograd.grad(loss, params)
         grad_flat = torch.cat([g.reshape(-1) for g in grads]).detach()
         return grad_flat, float(torch.linalg.norm(grad_flat).item())
@@ -460,8 +586,24 @@ class ContinuousSBEED:
                 "cg_residual_norm": 0.0,
                 "cg_relative_residual": 0.0,
             }
+        if not torch.isfinite(grad_flat).all():
+            return grad_norm, 0.0, {
+                "policy_direction": "skipped_nonfinite_grad",
+                "cg_iters_used": 0,
+                "cg_residual_norm": float("nan"),
+                "cg_relative_residual": float("nan"),
+            }
+        snapshots = self._clone_param_data(params)
         direction, diagnostics = self._conjugate_gradient(grad_flat, batch["X0"], params)
+        if not torch.isfinite(direction).all():
+            diagnostics["policy_direction"] = "skipped_nonfinite_direction"
+            return grad_norm, float("nan"), diagnostics
         self._apply_flat_direction(params, direction, step_size)
+        self._clamp_policy_distribution()
+        if not self._parameters_are_finite(params):
+            self._restore_param_data(params, snapshots)
+            diagnostics["policy_direction"] = "skipped_nonfinite_params"
+            return grad_norm, float("nan"), diagnostics
         diagnostics["policy_direction"] = "cg_fisher"
         return grad_norm, float(torch.linalg.norm(direction).item()), diagnostics
 
@@ -472,10 +614,9 @@ class ContinuousSBEED:
         batch = self._fragment_batch(starts, lengths, terminals)
 
         self.update_index += 1
-        decay = 1.0 / (1.0 + float(self.update_index) / self.tau)
-        value_step_size = self.lr_value * decay
-        rho_step_size = self.lr_rho * decay
-        policy_step_size = self.lr_policy * decay
+        value_step_size = self._learning_rate("value", self.lr_value)
+        rho_step_size = self._learning_rate("rho", self.lr_rho)
+        policy_step_size = self._learning_rate("policy", self.lr_policy)
 
         beta_grad_norm = self._rho_update(batch, rho_step_size)
         theta_grad_norm = self._value_update(batch, value_step_size)
@@ -497,6 +638,9 @@ class ContinuousSBEED:
                 "value_optimizer": "adam",
                 "rho_optimizer": "adam",
                 "policy_optimizer": "npg_cg",
+                "value_lr_scheduler": self.lr_schedulers["value"],
+                "rho_lr_scheduler": self.lr_schedulers["rho"],
+                "policy_lr_scheduler": self.lr_schedulers["policy"],
                 "rollout_length": int(self.rollout_length),
                 "mean_fragment_length": float(lengths.to(dtype=torch.float32).mean().item()),
                 "terminal_fragment_fraction": float(terminals.to(dtype=torch.float32).mean().item()),
@@ -541,8 +685,10 @@ class ContinuousSBEED:
     ) -> np.ndarray:
         with torch.no_grad():
             action = self.policy_param.sample(self._obs_tensor(observation), deterministic=deterministic).squeeze(0)
+            action = self._finite_action_fallback(action)
             if clip:
                 action = self._clip_action_tensor(action)
+                action = self._finite_action_fallback(action)
         return action.detach().cpu().numpy().astype(np.float32)
 
     @staticmethod
@@ -579,6 +725,8 @@ class ContinuousSBEED:
         episode_returns: list[float] = []
         current_return = 0.0
         obs = np.asarray(observation, dtype=np.float32)
+        if not np.isfinite(obs).all():
+            raise ValueError("initial environment observation must be finite")
         for _ in range(int(n_steps)):
             if render:
                 env.render()
@@ -586,7 +734,14 @@ class ContinuousSBEED:
                 action = np.asarray(env.action_space.sample(), dtype=np.float32)
             else:
                 action = self.sample_action(obs, deterministic=deterministic, clip=True)
+            if not np.isfinite(action).all():
+                raise ValueError("sampled action must be finite")
             next_obs, reward, done, _ = self._parse_env_step(env.step(action))
+            if not np.isfinite(next_obs).all():
+                next_obs = self._parse_env_reset(env.reset())
+                done = True
+            if not math.isfinite(float(reward)):
+                reward = 0.0
             self.dataset.append_fifo(
                 obs,
                 action,
