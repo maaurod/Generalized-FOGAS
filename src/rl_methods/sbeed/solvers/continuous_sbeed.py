@@ -366,7 +366,7 @@ class ContinuousSBEED:
         if not params:
             return torch.empty(0, dtype=dtype, device=self.device), 0.0
         log_pi = self._weighted_policy_log_probs(batch, dtype=dtype)
-        loss = -2.0 * (advantage * log_pi).mean()
+        loss = -2.0 * self.lambda_entropy * (advantage * log_pi).mean()
         grads = torch.autograd.grad(loss, params)
         grad_flat = torch.cat([g.reshape(-1) for g in grads]).detach()
         return grad_flat, float(torch.linalg.norm(grad_flat).item())

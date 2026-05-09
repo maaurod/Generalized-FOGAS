@@ -3,7 +3,7 @@
 # This will run in the background and you can connect later
 # Usage: ./submit_jupyter_job.sh [time] [gpu_count] [port]
 
-TIME=${1:-"4:00:00"}
+TIME=${1:-"12:00:00"}
 GPU_COUNT=${2:-1}
 PORT=${3:-8888}
 JOB_NAME="fogas-jupyter"
