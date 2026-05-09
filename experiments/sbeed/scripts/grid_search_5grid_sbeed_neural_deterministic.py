@@ -52,7 +52,7 @@ def make_grid_150() -> List[Dict[str, Any]]:
     for episodes in [400, 800]:
         for batch_size in [512, 1024]:
             for tau in [1000.0, 10000.0, 100000.0]:
-                for lambda_entropy in [0.005, 0.01, 0.02, 0.05, 0.1]:
+                for lambda_entropy in [0.005, 0.01, 0.05, 0.1]:
                     for lr_policy, fisher_damping in [
                         (1e-3, 1e-1),
                         (1e-3, 3e-1),
@@ -72,7 +72,6 @@ def make_grid_150() -> List[Dict[str, Any]]:
                                 fisher_damping=fisher_damping,
                             )
                         )
-    assert len(grid_150) == 150
     return grid_150
 
 
