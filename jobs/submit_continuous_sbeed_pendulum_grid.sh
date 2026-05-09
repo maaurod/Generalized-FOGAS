@@ -4,7 +4,7 @@
 
 set -euo pipefail
 
-TIME=${1:-"48:00:00"}
+TIME=${1:-"72:00:00"}
 GPU_COUNT=${2:-6}
 PARTITION=${3:-"frida"}
 JOB_NAME="sbeed_pendulum_grid"
@@ -32,18 +32,13 @@ sbatch <<SBATCH_EOF
 #SBATCH --cpus-per-task=$((GPU_COUNT * 4))
 #SBATCH --output=$LOG_FILE
 #SBATCH --error=$LOG_FILE
+#SBATCH --exclude=axa
 
 set -euo pipefail
 
 cd "$REPO_ROOT"
 
-if [ -f "\$HOME/anaconda3/etc/profile.d/conda.sh" ]; then
-    source "\$HOME/anaconda3/etc/profile.d/conda.sh"
-    conda activate fogas
-elif command -v conda >/dev/null 2>&1; then
-    eval "\$(conda shell.bash hook)"
-    conda activate fogas
-fi
+source venv/bin/activate
 
 echo "Job started at: \$(date)"
 echo "Node: \$(hostname)"
