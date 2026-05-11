@@ -13,9 +13,18 @@ from .mdp.abstract_mdp import (
 from .q_learning.q_learning_solver import QLearningResult, QLearningSolver, run_q_learning
 from .fogas.fogas_solver import FOGASSolver
 from .fogas.fogas_solver_vectorized import FOGASSolverVectorized
-from .fogas_generalization.fogas_solver_gen import FOGASSolverBeta
-from .fogas_generalization.fogas_solver_gen_vectorized import FOGASSolverBetaVectorized
-from .fogas_generalization.solver_policy import FOGASSolverPolicy
+from .fogas_generalization import (
+    BetaSolver,
+    FOGASSolverBeta,
+    FOGASSolverBetaObjectivePolicyVectorized,
+    FOGASSolverBetaVectorized,
+    FOGASSolverPolicy,
+    LinearPolicyFOGAS,
+    TabularPolicyFeatures,
+    VBetaLogitSolver,
+    VBetaObjectivePolicySolver,
+    VBetaSolver,
+)
 from .fogas.fogas_evaluator import FOGASEvaluator
 from .fogas.fogas_dataset import FOGASDataset
 from .fogas.fogas_parameters import FOGASParameters
@@ -88,9 +97,15 @@ __all__ = [
     "run_q_learning",
     "FOGASSolver",
     "FOGASSolverVectorized",
+    "BetaSolver",
+    "VBetaSolver",
+    "VBetaObjectivePolicySolver",
+    "VBetaLogitSolver",
+    "LinearPolicyFOGAS",
+    "TabularPolicyFeatures",
     "FOGASSolverBeta",
     "FOGASSolverBetaVectorized",
-    "FOGASSolverPolicy",
+    "FOGASSolverBetaObjectivePolicyVectorized",
     "FOGASDataset",
     "FOGASParameters",
     "LinearMDPEnv",
@@ -145,3 +160,6 @@ __all__ = [
     "TabularStateFeatures",
     "TabularStateActionFeatures",
 ]
+
+if FOGASSolverPolicy is not None:
+    __all__.append("FOGASSolverPolicy")

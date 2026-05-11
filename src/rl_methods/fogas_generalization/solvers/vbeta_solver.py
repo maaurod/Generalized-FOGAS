@@ -2,12 +2,12 @@ import torch
 import random
 import numpy as np
 
-from ..fogas.fogas_dataset import FOGASDataset
-from ..fogas.fogas_parameters import FOGASParameters
+from ...fogas.fogas_dataset import FOGASDataset
+from ...fogas.fogas_parameters import FOGASParameters
 from tqdm import trange
 
 
-class FOGASSolverBetaVectorized:
+class VBetaSolver:
     """
     Vectorized beta-parameter FOGAS implementation: precomputes PHI tensors and
     runs the core loop with batch operations. Supports CUDA acceleration.
@@ -24,6 +24,7 @@ class FOGASSolverBetaVectorized:
         eta=None,
         rho=None,
         D_theta=None,
+        beta=None,
         print_params=False,
         dataset_verbose=False,
         seed=42,
@@ -90,6 +91,7 @@ class FOGASSolverBetaVectorized:
             eta=eta,
             rho=rho,
             D_theta=D_theta,
+            beta=beta,
             print_params=print_params,
         )
 
@@ -251,3 +253,6 @@ class FOGASSolverBetaVectorized:
         self.lambda_T = beta_t
 
         return pi_mat
+
+
+FOGASSolverBetaVectorized = VBetaSolver

@@ -2,12 +2,12 @@ import torch
 import random
 import numpy as np
 
-from ..fogas.fogas_dataset import FOGASDataset
-from ..fogas.fogas_parameters import FOGASParameters
+from ...fogas.fogas_dataset import FOGASDataset
+from ...fogas.fogas_parameters import FOGASParameters
 from tqdm import trange
 
 
-class FOGASSolverPolicy:
+class BetaSolver:
     """
     FOGAS implementation: runs the optimization algorithm, stores θ̄-history and final π.
     Evaluation utilities are moved to FOGASEvaluator.
@@ -25,6 +25,7 @@ class FOGASSolverPolicy:
         eta=None,
         rho=None,
         D_theta=None,
+        beta=None,
         print_params=False,
         dataset_verbose=False,
         seed=42,
@@ -100,6 +101,7 @@ class FOGASSolverPolicy:
             eta=eta,
             rho=rho,
             D_theta=D_theta,
+            beta=beta,
             print_params=print_params,
         )
 
@@ -125,12 +127,6 @@ class FOGASSolverPolicy:
         self.pi = None
         self.mod_alpha = self.alpha
         self.beta_T = None
-        self.lambda_T = None
-        self.policy_variant = None
-        self.policy_objective_before_history = None
-        self.policy_objective_after_history = None
-        self.policy_grad_norm_history = None
-        self.policy_cosine_similarity_history = None
 
     # ------------------------------------------------------------------
     # Covariance
@@ -190,108 +186,29 @@ class FOGASSolverPolicy:
     # ------------------------------------------------------------------
     # Softmax policy
     # ------------------------------------------------------------------
-    def softmax_policy(self, w, alpha, return_matrix=False):
-        """
-        Return the softmax-linear policy induced by w.
-        """
-        pi_matrix = self.softmax_policy_matrix_from_w(w, alpha)
+    def softmax_policy(self, theta_bar, alpha, return_matrix=False):
+        phi = self.phi
+        A = self.A
+        N = self.N
 
-        if return_matrix:
-            return pi_matrix
-
-        def pi(x):
-            return pi_matrix[int(x)]
-
-        return pi
-
-    def softmax_policy_matrix_from_w(self, w, alpha):
-        """
-        Return policy matrix pi_w of shape (N, A), where
-        pi_w[x, a] = softmax_a(alpha * <phi(x,a), w>).
-        Differentiable w.r.t. w.
-        """
-        N, A = self.N, self.A
-        device = self.device
-
-        pi = torch.zeros((N, A), dtype=torch.float64, device=device)
-        for x in range(N):
+        def compute_probs(x):
             logits = []
             for a in range(A):
-                phi_xa = self.phi(x, a).to(dtype=torch.float64, device=device)
-                logits.append(alpha * torch.dot(phi_xa, w))
+                phi_val = phi(x, a).to(dtype=torch.float64)
+                logits.append(alpha * torch.dot(phi_val, theta_bar))
             logits = torch.stack(logits)
-            pi[x] = torch.softmax(logits, dim=0)
-        return pi
-    
-    def policy_objective(self, w, theta_t, beta_t, alpha):
-        """
-        J_t(w) = (gamma/n) sum_i u_beta(X_i,A_i) * sum_a pi_w(a|X'_i) Q_theta(X'_i,a)
-        """
-        device = self.device
-        gamma = self.gamma
-        n = self.n
-        A = self.A
-        Phi = self.Phi
-        X_nexts = self.X_nexts
-        phi = self.phi
+            exp_logits = torch.exp(logits - torch.max(logits))
+            return exp_logits / exp_logits.sum()
 
-        pi_matrix = self.softmax_policy_matrix_from_w(w, alpha)  # (N, A)
-
-        obj = torch.tensor(0.0, dtype=torch.float64, device=device)
-
-        for i in range(n):
-            x_next = int(X_nexts[i].item())
-
-            # u_beta(X_i, A_i)
-            u_i = torch.dot(Phi[i], beta_t)
-
-            # V_theta^pi(X'_i) = sum_a pi(a|x'_i) Q_theta(x'_i,a)
-            v_i = torch.tensor(0.0, dtype=torch.float64, device=device)
-            for a in range(A):
-                phi_xa = phi(x_next, a).to(dtype=torch.float64, device=device)
-                q_xa = torch.dot(theta_t, phi_xa)
-                v_i = v_i + pi_matrix[x_next, a] * q_xa
-
-            obj = obj + u_i * v_i
-
-        return (gamma / n) * obj
-    
-    def policy_gradient_step(self, w_t, theta_t, beta_t, alpha, eta_pi, K_pi=1):
-        """
-        Perform K_pi gradient ascent steps on the policy objective J_t(w).
-        """
-        w = w_t.clone().detach().to(self.device)
-        w.requires_grad_(True)
-
-        for _ in range(K_pi):
-            J = self.policy_objective(w, theta_t, beta_t, alpha)
-            grad_w = torch.autograd.grad(J, w)[0] # automatic differentiation to get gradient([0] to take element 0)
-
-            with torch.no_grad():
-                w += eta_pi * grad_w
-
-            w.requires_grad_(True)
-
-        return w.detach()
-
-    def policy_gradient_info(self, w, theta_t, beta_t, alpha):
-        """
-        Return J_t(w), grad_w J_t(w), ||grad||, and cosine(theta_t, grad_w).
-        """
-        w_local = w.clone().detach().to(self.device)
-        w_local.requires_grad_(True)
-
-        J = self.policy_objective(w_local, theta_t, beta_t, alpha)
-        grad_w = torch.autograd.grad(J, w_local)[0].detach()
-        grad_norm = torch.linalg.norm(grad_w)
-        theta_norm = torch.linalg.norm(theta_t)
-
-        if grad_norm < 1e-12 or theta_norm < 1e-12:
-            cosine = torch.tensor(0.0, dtype=torch.float64, device=self.device)
+        if not return_matrix:
+            def pi(x):
+                return compute_probs(x)
+            return pi
         else:
-            cosine = torch.dot(theta_t, grad_w) / (theta_norm * grad_norm)
-
-        return J.detach(), grad_w, grad_norm.detach(), cosine.detach()
+            out = torch.zeros((N, A), dtype=torch.float64, device=self.device)
+            for x in range(N):
+                out[x] = compute_probs(x)
+            return out
 
     # ------------------------------------------------------------------
     # RUN FOGAS
@@ -305,12 +222,6 @@ class FOGASSolverPolicy:
         D_theta=None,
         beta_init=None,
         theta_bar_init=None,
-        w_init=None,
-        eta_pi=1e-2,
-        K_pi=1,
-        policy_variant="gradient",
-        tau_pi=0.5,
-        check_cosine_similarity=True,
         print_policies=False,
         verbose=False,
         tqdm_print=False
@@ -341,29 +252,10 @@ class FOGASSolverPolicy:
         # Initialization
         # -------------------------
         device = self.device
-        if theta_bar_init is not None and w_init is not None:
-            raise ValueError("Provide at most one of theta_bar_init and w_init.")
-
-        initial_w = w_init if w_init is not None else theta_bar_init
         beta_t = torch.zeros(d, dtype=torch.float64, device=device) if beta_init is None else beta_init.clone().to(device)
-        w_t = torch.zeros(d, dtype=torch.float64, device=device) if initial_w is None else initial_w.clone().to(device)
-        w_history = []
-        policy_objective_before_history = []
-        policy_objective_after_history = []
-        policy_grad_norm_history = []
-        policy_cosine_similarity_history = []
-        pi_t = self.softmax_policy(w_t, alpha)
-
-        if policy_variant in (0, "mirror", "theta"):
-            policy_variant_name = "mirror"
-        elif policy_variant in (1, "gradient", "grad"):
-            policy_variant_name = "gradient"
-        elif policy_variant in (2, "hybrid", "blend"):
-            policy_variant_name = "hybrid"
-        else:
-            raise ValueError(
-                "policy_variant must be one of {0, 1, 2, 'mirror', 'gradient', 'hybrid'}."
-            )
+        theta_bar_t = torch.zeros(d, dtype=torch.float64, device=device) if theta_bar_init is None else theta_bar_init.clone().to(device)
+        theta_bar_history = []
+        pi_t = lambda x: torch.ones(A, dtype=torch.float64, device=device) / A  # start uniform
 
         # -------------------------
         # Main loop
@@ -380,7 +272,7 @@ class FOGASSolverPolicy:
                 pi_t(x0)[a] * phi(x0, a).to(dtype=torch.float64, device=device) for a in range(A)
             )
 
-            lambda_emp_sum2 = torch.zeros(d, dtype=torch.float64, device=device)
+            lambda_emp_sum2 = torch.zeros(d, dtype=torch.float64)
 
             for i in range(n):
                 coeff = Phi[i] @ beta_t
@@ -401,7 +293,7 @@ class FOGASSolverPolicy:
             # ---------------------------
             # Ψ̂ v term
             # ---------------------------
-            sum_term = torch.zeros(d, dtype=torch.float64, device=device)
+            sum_term = torch.zeros(d, dtype=torch.float64)
             for i in range(n):
                 probs = pi_t(int(X_nexts[i].item()))
                 v = sum(
@@ -421,53 +313,13 @@ class FOGASSolverPolicy:
             # ---------------------------
             # Policy update
             # ---------------------------
-            J_before, grad_w, grad_norm, cosine_similarity = self.policy_gradient_info(
-                w=w_t,
-                theta_t=theta_t,
-                beta_t=beta_t,
-                alpha=alpha,
-            )
-
-            if policy_variant_name == "mirror":
-                w_t = w_t + theta_t
-            elif policy_variant_name == "gradient":
-                w_t = self.policy_gradient_step(
-                    w_t=w_t,
-                    theta_t=theta_t,
-                    beta_t=beta_t,
-                    alpha=alpha,
-                    eta_pi=eta_pi,
-                    K_pi=K_pi,
-                )
-            else:
-                w_candidate = w_t.clone()
-                for _ in range(K_pi):
-                    _, grad_hybrid, _, _ = self.policy_gradient_info(
-                        w=w_candidate,
-                        theta_t=theta_t,
-                        beta_t=beta_t,
-                        alpha=alpha,
-                    )
-                    w_candidate = (
-                        w_candidate
-                        + tau_pi * theta_t
-                        + (1.0 - tau_pi) * eta_pi * grad_hybrid
-                    )
-                w_t = w_candidate
-
-            J_after = self.policy_objective(w_t, theta_t, beta_t, alpha).detach()
-
-            w_history.append(w_t.clone())
-            policy_objective_before_history.append(J_before)
-            policy_objective_after_history.append(J_after)
-            policy_grad_norm_history.append(grad_norm)
-            if check_cosine_similarity:
-                policy_cosine_similarity_history.append(cosine_similarity)
-            pi_t = self.softmax_policy(w_t, alpha)
+            theta_bar_t += theta_t
+            theta_bar_history.append(theta_bar_t.clone())
+            pi_t = self.softmax_policy(theta_bar_t, alpha)
 
             if print_policies and (t % max(1, T // 10) == 0):
                 print(f"\nIteration {t+1}")
-                pi_matrix = self.softmax_policy(w_t, alpha, return_matrix=True)
+                pi_matrix = self.softmax_policy(theta_bar_t, alpha, return_matrix=True)
                 self.mdp.print_policy(pi_matrix)
 
             if verbose and (t % max(1, T // 10) == 0):
@@ -476,22 +328,13 @@ class FOGASSolverPolicy:
                 print(f"  ||θ_t|| = {torch.linalg.norm(theta_t).item():.3e}")
                 print(f"  β_t     = {beta_t}")
                 print(f"  ||β_t|| = {torch.linalg.norm(beta_t).item():.3e}")
-                print(f"  J_before = {J_before.item():.3e}")
-                print(f"  J_after  = {J_after.item():.3e}")
-                print(f"  ||∇J||   = {grad_norm.item():.3e}")
-                if check_cosine_similarity:
-                    print(f"  cos(θ,∇J) = {cosine_similarity.item():.3e}")
 
-        self.theta_bar_history = w_history
-        self.pi = self.softmax_policy(w_t, alpha, return_matrix=True)
+    
+        self.theta_bar_history = theta_bar_history
+        self.pi = self.softmax_policy(theta_bar_t, alpha, return_matrix=True)
         self.beta_T = beta_t
-        self.lambda_T = Cov_emp @ beta_t
-        self.policy_variant = policy_variant_name
-        self.policy_objective_before_history = policy_objective_before_history
-        self.policy_objective_after_history = policy_objective_after_history
-        self.policy_grad_norm_history = policy_grad_norm_history
-        self.policy_cosine_similarity_history = (
-            policy_cosine_similarity_history if check_cosine_similarity else None
-        )
 
-        return self.pi
+        return pi_t
+
+
+FOGASSolverBeta = BetaSolver
