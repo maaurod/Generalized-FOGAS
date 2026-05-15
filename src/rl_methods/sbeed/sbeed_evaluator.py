@@ -73,6 +73,23 @@ class SBEEDEvaluator:
             return x.detach().cpu().numpy()
         return np.asarray(x)
 
+    def _as_policy_matrix(self, pi: ArrayLike) -> np.ndarray:
+        pi_np = self._to_numpy(pi).astype(np.float64, copy=True)
+        if pi_np.shape != (self.n_states, self.n_actions):
+            raise ValueError(f"pi must have shape ({self.n_states}, {self.n_actions})")
+        if not np.all(np.isfinite(pi_np)):
+            raise ValueError("pi contains non-finite probabilities")
+        if np.any(pi_np < -1e-12):
+            raise ValueError("pi contains negative action probabilities")
+
+        pi_np = np.clip(pi_np, 0.0, None)
+        row_sums = pi_np.sum(axis=1, keepdims=True)
+        bad_rows = np.where(row_sums[:, 0] <= 0.0)[0]
+        if bad_rows.size:
+            raise ValueError(f"pi rows must have positive probability mass; bad rows: {bad_rows.tolist()}")
+
+        return pi_np / row_sums
+
     def _as_transition_tensor(self, P: ArrayLike) -> np.ndarray:
         P_np = self._to_numpy(P).astype(np.float64, copy=False)
         if P_np.shape == (self.n_states * self.n_actions, self.n_states):
@@ -171,14 +188,11 @@ class SBEEDEvaluator:
             policy = self.solver.get_policy_matrix()
         else:
             policy = self.solver.pi.detach().clone()
-        return policy.detach().cpu().numpy().astype(np.float64, copy=False)
+        return self._as_policy_matrix(policy)
 
     def print_policy(self, pi: Optional[ArrayLike] = None) -> None:
         """Pretty-print a discrete policy table."""
-        pi_np = self.learned_policy() if pi is None else self._to_numpy(pi).astype(np.float64, copy=False)
-        if pi_np.shape != (self.n_states, self.n_actions):
-            raise ValueError(f"pi must have shape ({self.n_states}, {self.n_actions})")
-
+        pi_np = self.learned_policy() if pi is None else self._as_policy_matrix(pi)
         self._print_policy_table(pi_np, title="SBEED POLICY")
 
     def optimal_value(
@@ -248,9 +262,7 @@ class SBEEDEvaluator:
         Otherwise this returns the plain sum of rewards along the rollout.
         """
         rng = np.random.default_rng(seed)
-        pi_np = self.learned_policy() if pi is None else self._to_numpy(pi).astype(np.float64, copy=False)
-        if pi_np.shape != (self.n_states, self.n_actions):
-            raise ValueError(f"pi must have shape ({self.n_states}, {self.n_actions})")
+        pi_np = self.learned_policy() if pi is None else self._as_policy_matrix(pi)
 
         state = int(start_state if start_state is not None else (self.x0 if self.x0 is not None else 0))
         total_reward = 0.0
