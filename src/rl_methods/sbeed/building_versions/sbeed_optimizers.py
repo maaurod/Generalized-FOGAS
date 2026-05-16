@@ -1,3 +1,16 @@
+"""Stage 3 SBEED solver: optimizer comparison for the one-step objective.
+
+The mathematical objective is still the terminal-aware one-step SBEED loss from
+`SBEEDSolverSGDRho`. This file isolates optimizer choices:
+
+    - value and rho: SGD or Adam in Euclidean geometry,
+    - policy: SGD, exact-Fisher natural policy gradient, or CG natural policy
+      gradient.
+
+The goal of this stage is experimental: identify optimizer settings that remain
+stable before adding multi-step targets.
+"""
+
 from __future__ import annotations
 
 import random
@@ -23,11 +36,17 @@ class SBEEDOptimizers:
     It does not assume linear rewards, linear transitions, omega, or LinearMDP
     transition features.
 
-    This class intentionally does not inherit from SBEEDSolver. It implements
-    the same external API as SBEEDSolverSGDRho while changing optimizer choices:
+    Stage purpose:
+        Compare Euclidean and KL/natural-gradient policy updates while keeping
+        the target construction unchanged.
+
+    Difference from the previous version:
         1. replay rows include done flags for episodic collection,
         2. value and rho can use SGD or Adam,
         3. policy can use SGD, exact-Fisher NPG, or conjugate-gradient NPG.
+
+    This class intentionally does not inherit from SBEEDSolverSGDRho so the
+    optimizer logic is visible in one file for the staged experiments.
 
     Optimizer names:
         value_optimizer: "sgd" or "adam"

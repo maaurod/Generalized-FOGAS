@@ -1,3 +1,16 @@
+"""Stage 2 SBEED solver: terminal-aware replay with stochastic rho updates.
+
+This version keeps the one-step linear value, rho, and policy models from
+`sbeed_solver.py`, but makes two practical changes needed for episodic
+gridworlds:
+
+    1. replay rows store `done`, so terminal transitions do not bootstrap,
+    2. the dual model is updated by SGD instead of closed-form ridge solve.
+
+Those changes make the implementation closer to the online primal-dual update
+used by the final solvers.
+"""
+
 from __future__ import annotations
 
 import random
@@ -23,10 +36,17 @@ class SBEEDSolverSGDRho:
     It does not assume linear rewards, linear transitions, omega, or LinearMDP
     transition features.
 
-    This class intentionally does not inherit from SBEEDSolver. It implements
-    the same external API while changing two algorithmic details:
+    Stage purpose:
+        Test whether the exact rho regression can be replaced by stochastic
+        ascent while preserving the same one-step objective.
+
+    Difference from the previous version:
         1. replay rows include done flags for episodic collection,
         2. beta/rho is updated by SGD instead of an exact least-squares solve.
+
+    This class intentionally does not inherit from SBEEDSolver. The duplicated
+    structure keeps the stage readable when comparing the two files side by
+    side in the report.
     """
 
     def __init__(

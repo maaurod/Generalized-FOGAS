@@ -1,3 +1,10 @@
+"""Feature maps and parametrization modules for discrete SBEED.
+
+The early solvers use callable feature maps directly. The final solver wraps
+those maps in PyTorch modules so the same update code can handle tabular,
+RBF-style linear, and neural parametrizations.
+"""
+
 from __future__ import annotations
 
 from typing import Callable, Iterable, Optional, Protocol, Sequence, Union, runtime_checkable
@@ -9,7 +16,12 @@ TensorLike = Union[torch.Tensor, list, tuple]
 
 
 class TabularStateFeatures:
-    """One-hot state features phi(s)."""
+    """
+    One-hot state features phi(s).
+
+    Best for small finite MDPs because the value function can represent an
+    independent scalar for every state.
+    """
 
     def __init__(self, n_states: int, dtype: torch.dtype = torch.float64):
         self.n_states = int(n_states)
@@ -28,7 +40,12 @@ class TabularStateFeatures:
 
 
 class TabularStateActionFeatures:
-    """One-hot state-action features rho_features(s, a)."""
+    """
+    One-hot state-action features rho_features(s, a).
+
+    Best for small finite MDPs because the dual model can represent an
+    independent scalar for every observed state-action pair.
+    """
 
     def __init__(self, n_states: int, n_actions: int, dtype: torch.dtype = torch.float64):
         self.n_states = int(n_states)
@@ -209,7 +226,13 @@ class RBFStateFeatures:
 
 
 class RBFStateActionFeatures:
-    """Action-coupled RBF features zeta(s, a) = e_a kron phi(s)."""
+    """
+    Action-coupled RBF features zeta(s, a) = e_a kron phi(s).
+
+    The feature vector contains one block per action; only the selected action
+    block is filled with the state RBF feature. This is the linear rho
+    parametrization used in the RBF grid-search experiments.
+    """
 
     def __init__(
         self,

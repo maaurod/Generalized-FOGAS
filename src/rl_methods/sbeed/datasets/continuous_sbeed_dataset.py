@@ -1,3 +1,10 @@
+"""Replay buffer for continuous SBEED.
+
+Rows store `(observation, action, reward, next_observation, done)`. The solver
+samples contiguous rows to build multi-step targets, so appending transitions in
+environment order matters.
+"""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -8,7 +15,12 @@ import torch
 
 @dataclass
 class ContinuousSBEEDDataset:
-    """Transition buffer for continuous-observation, continuous-action SBEED."""
+    """
+    Transition buffer for continuous-observation, continuous-action SBEED.
+
+    This mirrors `DiscreteSBEEDDataset`, but keeps observations and actions as
+    float matrices with shapes `(n, obs_dim)` and `(n, action_dim)`.
+    """
 
     X: torch.Tensor
     A: torch.Tensor

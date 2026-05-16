@@ -1,3 +1,12 @@
+"""Neural DiscreteSBEED search on the deterministic 5x5 grid.
+
+This search uses the final modular `DiscreteSBEED` solver with neural value,
+rho, and policy modules. It keeps the deterministic gridworld from the earlier
+experiments and varies the main stability parameters for the neural path:
+training horizon, batch size, learning-rate decay, entropy, policy step size,
+and Fisher damping.
+"""
+
 from __future__ import annotations
 
 import argparse
@@ -48,6 +57,7 @@ from rl_methods.sbeed.solvers import DiscreteSBEED  # noqa: E402
 
 
 def make_grid_150() -> List[Dict[str, Any]]:
+    """Build the deterministic neural search grid."""
     grid_150 = []
     for episodes in [400, 800]:
         for batch_size in [512, 1024]:
@@ -75,6 +85,8 @@ def make_grid_150() -> List[Dict[str, Any]]:
     return grid_150
 
 
+# Full list of neural configurations to run. CLI options can limit or resume
+# execution without changing this definition.
 CONFIGS_TO_TRY = make_grid_150()
 SEED = 42
 REQUESTED_DEVICE = "auto"

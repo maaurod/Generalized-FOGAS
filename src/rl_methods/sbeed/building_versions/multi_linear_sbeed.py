@@ -1,3 +1,16 @@
+"""Stage 4 SBEED solver: linear multi-step targets.
+
+This version is the first one to sample trajectory fragments instead of single
+transitions. For a fragment of realized length h, the target is:
+
+    sum_l gamma^l [r_l - lambda log pi(a_l | s_l)]
+    + I[nonterminal] gamma^h V(s_h)
+
+Fragments are truncated at terminal transitions and never cross episode
+boundaries. The dual feature is the discounted sum of per-step state-action
+features, so the linear rho model approximates the same multi-step backup.
+"""
+
 from __future__ import annotations
 
 import random
@@ -20,10 +33,17 @@ class MultiLinearSBEED:
         rho_beta(s_0, a_0:h-1) = beta^T sum_l gamma^l rho_features(s_l, a_l)
         pi_W(a | s) = softmax(W policy_features(s))[a]
 
+    Stage purpose:
+        Test whether multi-step targets improve reward propagation in larger
+        deterministic and stochastic grids.
+
+    Difference from the previous version:
+        `SBEEDOptimizers` samples isolated one-step transitions. This class
+        samples terminal-safe fragments and updates value, rho, and policy with
+        the multi-step gradients.
+
     This class intentionally does not inherit from SBEEDOptimizers, but it keeps
-    the same optimizer and collection API. Replay rows include done flags, and
-    optimization samples valid k-step fragments that never cross episode
-    boundaries.
+    the same optimizer and collection API for direct experiment comparison.
 
     Optimizer names:
         value_optimizer: "sgd" or "adam"

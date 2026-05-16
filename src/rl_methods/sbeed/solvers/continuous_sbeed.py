@@ -1,3 +1,17 @@
+"""Final continuous-action SBEED solver.
+
+This module adapts the multi-step SBEED update to Gymnasium-style continuous
+control. The main differences from the discrete solver are:
+
+    - observations and actions are real-valued tensors,
+    - the policy is Gaussian instead of categorical,
+    - actions can be clipped to environment bounds before stepping the env,
+    - the policy natural-gradient step uses Gaussian log-probabilities and KL.
+
+The update order remains the same as the discrete final solver: rho, value,
+then policy.
+"""
+
 from __future__ import annotations
 
 import math
@@ -16,7 +30,13 @@ from ..datasets.continuous_sbeed_dataset import ContinuousSBEEDDataset
 
 
 class ContinuousSBEED:
-    """Multi-step SBEED for continuous Gymnasium-style control problems."""
+    """
+    Multi-step SBEED for continuous Gymnasium-style control problems.
+
+    Use this class with parametrization modules from
+    `features.continuous_features`, typically neural value/rho modules and a
+    Gaussian policy such as `RFFGaussianPolicyParam`.
+    """
 
     _LR_GROUPS = ("value", "rho", "policy")
 
@@ -252,6 +272,7 @@ class ContinuousSBEED:
             group["lr"] = lr
 
     def _learning_rate(self, name: str, base_lr: float) -> float:
+        """Return the current learning rate for one optimizer group."""
         schedule = self.lr_schedulers[name]
         if schedule == "none":
             return float(base_lr)
@@ -297,6 +318,7 @@ class ContinuousSBEED:
         return torch.where(torch.isfinite(action), action, fallback)
 
     def _valid_fragment_starts(self) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        """Find terminal-safe replay starts for multi-step continuous targets."""
         if self.n == 0:
             raise ValueError("Replay buffer D is empty. Collect data before sampling fragments.")
 
@@ -343,6 +365,7 @@ class ContinuousSBEED:
         lengths: torch.Tensor,
         terminals: torch.Tensor,
     ) -> Dict[str, torch.Tensor]:
+        """Materialize padded observation-action fragments and discount masks."""
         offsets = torch.arange(self.rollout_length, dtype=torch.int64, device=self.device)
         fragment_indices = starts[:, None] + offsets[None, :]
         safe_indices = fragment_indices.clamp_max(max(self.n - 1, 0))
@@ -408,6 +431,7 @@ class ContinuousSBEED:
         ).to(dtype=dtype)
 
     def _target_delta_no_grad(self, batch: Dict[str, torch.Tensor], dtype: torch.dtype) -> torch.Tensor:
+        """Compute multi-step continuous targets while freezing V and policy."""
         with torch.no_grad():
             rewards = self._discounted_rewards(batch, dtype)
             log_pi = self._weighted_policy_log_probs(batch, dtype=dtype)
@@ -422,6 +446,7 @@ class ContinuousSBEED:
         return float(sq_norm ** 0.5)
 
     def _value_update(self, batch: Dict[str, torch.Tensor], step_size: float) -> float:
+        """Adam update for the continuous value network."""
         if self.value_optimizer is None:
             return 0.0
         params = self._trainable_params(self.value_param)
@@ -452,6 +477,7 @@ class ContinuousSBEED:
         return grad_norm
 
     def _rho_update(self, batch: Dict[str, torch.Tensor], step_size: float) -> float:
+        """Adam update that regresses rho toward frozen target delta."""
         if self.rho_optimizer is None:
             return 0.0
         params = self._trainable_params(self.rho_param)
@@ -477,6 +503,7 @@ class ContinuousSBEED:
         return grad_norm
 
     def _policy_loss_and_grad(self, batch: Dict[str, torch.Tensor]) -> Tuple[torch.Tensor, float]:
+        """Build the Gaussian-policy gradient before Fisher preconditioning."""
         dtype = self._param_dtype(self.policy_param)
         with torch.no_grad():
             rewards = self._discounted_rewards(batch, dtype)
@@ -504,6 +531,7 @@ class ContinuousSBEED:
         observations: torch.Tensor,
         params: list[torch.nn.Parameter],
     ) -> torch.Tensor:
+        """Fisher-vector product from the Gaussian policy KL Hessian."""
         dtype = self._param_dtype(self.policy_param)
         observations = observations.to(dtype=dtype)
         with torch.no_grad():
@@ -526,6 +554,7 @@ class ContinuousSBEED:
         observations: torch.Tensor,
         params: list[torch.nn.Parameter],
     ) -> Tuple[torch.Tensor, Dict[str, float]]:
+        """Approximately solve the damped Fisher system for policy update."""
         def matvec(v: torch.Tensor) -> torch.Tensor:
             return self._policy_kl_hvp(v, observations, params) + self.fisher_damping * v
 
@@ -578,6 +607,7 @@ class ContinuousSBEED:
         batch: Dict[str, torch.Tensor],
         step_size: float,
     ) -> Tuple[float, float, Dict[str, float]]:
+        """Apply the continuous Gaussian CG natural-gradient update."""
         grad_flat, grad_norm = self._policy_loss_and_grad(batch)
         params = self._trainable_params(self.policy_param)
         if not params or grad_flat.numel() == 0:
@@ -609,6 +639,7 @@ class ContinuousSBEED:
         return grad_norm, float(torch.linalg.norm(direction).item()), diagnostics
 
     def step(self) -> Dict[str, float]:
+        """Run one continuous SBEED optimization step: rho, value, policy."""
         if self.n == 0:
             raise ValueError("Replay buffer D is empty. Collect data before calling step().")
         starts, lengths, terminals = self._batch_fragment_starts()
@@ -652,6 +683,7 @@ class ContinuousSBEED:
         return stats
 
     def objective(self) -> Dict[str, float]:
+        """Evaluate the empirical multi-step SBEED objective on replay."""
         if self.n == 0:
             raise ValueError("Replay buffer D is empty. Cannot compute objective.")
         with torch.no_grad():
@@ -684,6 +716,7 @@ class ContinuousSBEED:
         deterministic: bool = False,
         clip: bool = True,
     ) -> np.ndarray:
+        """Sample or take the mean action from the current Gaussian policy."""
         with torch.no_grad():
             action = self.policy_param.sample(self._obs_tensor(observation), deterministic=deterministic).squeeze(0)
             action = self._finite_action_fallback(action)
@@ -723,6 +756,7 @@ class ContinuousSBEED:
         deterministic: bool = False,
         render: bool = False,
     ) -> Tuple[np.ndarray, list[float]]:
+        """Collect ordered Gymnasium transitions into FIFO replay."""
         episode_returns: list[float] = []
         current_return = 0.0
         obs = np.asarray(observation, dtype=np.float32)
@@ -776,6 +810,7 @@ class ContinuousSBEED:
         eval_every_episodes: Optional[int] = None,
         eval_callback: Optional[Callable[["ContinuousSBEED", int, Optional[Dict[str, float]]], Dict[str, Any]]] = None,
     ) -> Dict[str, Any]:
+        """Train SBEED by interacting directly with a Gymnasium environment."""
         try:
             import gymnasium as gym
         except ImportError as exc:

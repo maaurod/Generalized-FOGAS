@@ -1,3 +1,11 @@
+"""Fixed RBF search for MultiLinearSBEED on the deterministic 5x5 grid.
+
+This script runs a curated set of RBF-feature configurations. It is not a full
+Cartesian sweep; the list below records promising settings chosen after the
+earlier staged experiments. The deterministic grid is used to test reward
+propagation and obstacle avoidance without transition noise.
+"""
+
 from __future__ import annotations
 
 import argparse
@@ -16,6 +24,7 @@ from rbf_grid_search_common import (
 )
 
 
+# Curated candidates. Each dict can override the shared training defaults below.
 DETERMINISTIC_RBF_30_RUNS = [
     dict(lambda_entropy=0.01, eta=0.01, rollout_length=3, lr_value=1e-3, lr_rho=1e-3, lr_policy=1e-3, batch_size=256, fisher_damping=1e-3, epsilon=0.30),
     dict(lambda_entropy=0.01, eta=0.03, rollout_length=3, lr_value=1e-3, lr_rho=1e-3, lr_policy=1e-3, batch_size=256, fisher_damping=1e-3, epsilon=0.30),
@@ -52,6 +61,8 @@ DETERMINISTIC_RBF_30_RUNS = [
     dict(lambda_entropy=0.05, eta=0.05, rollout_length=3, lr_value=1e-3, lr_rho=1e-3, lr_policy=1e-3, batch_size=512, fisher_damping=1e-2, epsilon=0.30, episodes=1800, collect_per_episode=25, updates_per_episode=15, initial_collect_steps=2000),
 ]
 
+# Defaults shared by most candidates. Individual config dictionaries may
+# override these fields for longer or more exploratory runs.
 DETERMINISTIC_RBF_TRAINING_KWARGS = dict(
     episodes=1200,
     collect_per_episode=20,

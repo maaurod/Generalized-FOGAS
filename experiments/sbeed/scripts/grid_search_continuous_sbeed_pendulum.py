@@ -1,3 +1,10 @@
+"""Grid search for ContinuousSBEED on Pendulum-v1.
+
+This script evaluates the final continuous solver with neural value/rho models
+and an RFF Gaussian policy. It records both training diagnostics and periodic
+deterministic evaluation returns so runs can be ranked after long jobs finish.
+"""
+
 from __future__ import annotations
 
 import argparse
@@ -29,6 +36,8 @@ if str(SRC_DIR) not in sys.path:
 SEED = 42
 ENV_ID = "Pendulum-v1"
 
+# Values that stay fixed across the continuous search. The grid below only
+# changes the learning rates, eta/lambda/rollout/batch choices, and scheduler.
 FIXED_VALUES = {
     "gamma": 0.995,
     "initial_random_steps": 20000,
@@ -45,6 +54,7 @@ FIXED_VALUES = {
     "log_every": 5,
 }
 
+# Scheduler variants tested for all optimizer groups.
 SCHEDULER_GRID = [
     {
         "name": "inverse_time_tau_5000",
@@ -66,6 +76,7 @@ SCHEDULER_GRID = [
     },
 ]
 
+# Stable CSV schema for post-processing and ranking runs.
 FIELDNAMES = [
     "experiment_id",
     "status",

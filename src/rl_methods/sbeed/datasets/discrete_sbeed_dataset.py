@@ -1,3 +1,10 @@
+"""Replay buffer for finite-state SBEED solvers.
+
+Rows store `(state, action, reward, next_state, done)`. The staged one-step
+solvers only need individual rows, while the multi-step solvers sample
+contiguous row fragments and stop at `done=True`.
+"""
+
 from __future__ import annotations
 
 from dataclasses import dataclass

@@ -1,3 +1,11 @@
+"""Fixed RBF search for MultiLinearSBEED on the stochastic 5x5 grid.
+
+This script reuses the common RBF grid-search runner, but evaluates under
+stochastic dynamics. The tested configs emphasize entropy, eta, rollout length,
+and Fisher damping because those were the most sensitive stability knobs in the
+stochastic setting.
+"""
+
 from __future__ import annotations
 
 import argparse
@@ -16,6 +24,8 @@ from rbf_grid_search_common import (
 )
 
 
+# Curated candidates for the noisy-transition grid. Several entries extend the
+# default training horizon when a setting needs more data to stabilize.
 STOCHASTIC_RBF_30_RUNS = [
     dict(lambda_entropy=0.02, eta=0.01, rollout_length=1, lr_value=1e-3, lr_rho=1e-3, lr_policy=1e-3, batch_size=512, fisher_damping=1e-3, epsilon=0.30),
     dict(lambda_entropy=0.05, eta=0.01, rollout_length=1, lr_value=1e-3, lr_rho=1e-3, lr_policy=1e-3, batch_size=512, fisher_damping=1e-3, epsilon=0.30),
@@ -52,6 +62,7 @@ STOCHASTIC_RBF_30_RUNS = [
     dict(lambda_entropy=0.05, eta=0.01, rollout_length=3, lr_value=1e-3, lr_rho=3e-4, lr_policy=1e-3, batch_size=1024, fisher_damping=1e-2, epsilon=0.40, episodes=2200, collect_per_episode=25, updates_per_episode=15, initial_collect_steps=2500),
 ]
 
+# Defaults shared by most candidates unless a config dictionary overrides them.
 STOCHASTIC_RBF_TRAINING_KWARGS = dict(
     episodes=1500,
     collect_per_episode=20,

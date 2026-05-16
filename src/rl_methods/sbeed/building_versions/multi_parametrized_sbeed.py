@@ -1,3 +1,18 @@
+"""Stage 5 SBEED solver: cleaned linear scaffold before modularization.
+
+This file keeps the linear tensors from `MultiLinearSBEED`, but removes the
+branching used for optimizer experiments. It represents the implementation
+choices selected after the staged comparison:
+
+    - FIFO replay,
+    - Adam for value and rho,
+    - implicit/CG natural policy gradient,
+    - collection with the current policy.
+
+The final `DiscreteSBEED` solver keeps this update order and replaces the
+hard-coded tensors with reusable parametrization modules.
+"""
+
 from __future__ import annotations
 
 import random
@@ -21,7 +36,8 @@ class MultiParametrizedSBEED:
         rho_beta(s_0, a_0:h-1) = beta^T sum_l gamma^l rho_features(s_l, a_l)
         pi_W(a | s) = softmax(W policy_features(s))[a]
 
-    It removes the legacy optimizer branches from MultiLinearSBEED:
+    Difference from the previous version:
+        It removes the legacy optimizer branches from MultiLinearSBEED:
         - value and rho always use Adam,
         - policy always uses the implicit/CG Fisher update,
         - replay is always FIFO,
