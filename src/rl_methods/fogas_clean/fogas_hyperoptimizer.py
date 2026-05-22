@@ -1,5 +1,7 @@
+import copy
 import inspect
 import itertools
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import numpy as np
 
@@ -63,6 +65,7 @@ class FOGASHyperOptimizer:
         top_k=5,
         progress=False,
         progress_leave=True,
+        grid_n_jobs=1,
         **run_kwargs,
     ):
         mode = self._canonical_choice(mode, {"grid", "smart"}, "mode")
@@ -105,6 +108,7 @@ class FOGASHyperOptimizer:
                     history=history,
                     run_kwargs=run_kwargs,
                     progress_bar=progress_bar,
+                    grid_n_jobs=grid_n_jobs,
                 )
                 result["smart_mode"] = None
                 result["strategy"] = None
@@ -171,6 +175,7 @@ class FOGASHyperOptimizer:
         history,
         run_kwargs,
         progress_bar,
+        grid_n_jobs,
     ):
         if not values:
             raise ValueError("values is required when mode='grid'.")
@@ -187,11 +192,30 @@ class FOGASHyperOptimizer:
         base_params = self._base_params()
         base_params.update(fixed_params)
         base_params.update(run_kwargs)
+        candidates = []
 
         for combo in itertools.product(*(values[p] for p in value_keys)):
             candidate = dict(base_params)
             candidate.update(dict(zip(value_keys, combo)))
-            self._evaluate_candidate(candidate, num_runs, history, stage="grid", progress_bar=progress_bar)
+            candidates.append(candidate)
+
+        if self._use_parallel_grid(grid_n_jobs):
+            self._evaluate_grid_parallel(
+                candidates=candidates,
+                num_runs=num_runs,
+                history=history,
+                progress_bar=progress_bar,
+                n_jobs=grid_n_jobs,
+            )
+        else:
+            for candidate in candidates:
+                self._evaluate_candidate(
+                    candidate,
+                    num_runs,
+                    history,
+                    stage="grid",
+                    progress_bar=progress_bar,
+                )
 
         return self._best_result(history)
 
@@ -339,6 +363,71 @@ class FOGASHyperOptimizer:
 
     def _metric_value(self):
         value = self.metric()
+        try:
+            import torch
+        except ImportError:
+            torch = None
+        if torch is not None and isinstance(value, torch.Tensor):
+            return float(value.item())
+        return float(value)
+
+    def _use_parallel_grid(self, grid_n_jobs):
+        grid_n_jobs = int(grid_n_jobs)
+        if grid_n_jobs <= 1:
+            return False
+        if not isinstance(self.metric_spec, str):
+            raise ValueError("Parallel grid search supports string evaluator metrics only.")
+
+        device = getattr(self.solver, "device", None)
+        if device is None and hasattr(self.solver, "mdp") and hasattr(self.solver.mdp, "r"):
+            device = self.solver.mdp.r.device
+        return device is None or str(device) == "cpu"
+
+    def _evaluate_grid_parallel(self, candidates, num_runs, history, progress_bar, n_jobs):
+        n_jobs = int(n_jobs)
+        completed = []
+        progress_history = []
+
+        with ThreadPoolExecutor(max_workers=n_jobs) as executor:
+            futures = {
+                executor.submit(self._evaluate_candidate_on_solver_copy, candidate, num_runs): idx
+                for idx, candidate in enumerate(candidates)
+            }
+            for future in as_completed(futures):
+                idx = futures[future]
+                record = future.result()
+                completed.append((idx, record))
+                progress_history.append(record)
+                self._update_progress_bar(progress_bar, record, progress_history)
+
+        history.extend(record for _, record in sorted(completed, key=lambda item: item[0]))
+
+    def _evaluate_candidate_on_solver_copy(self, params, num_runs):
+        solver = copy.deepcopy(self.solver)
+        planner = copy.deepcopy(getattr(self.evaluator, "planner", None))
+        evaluator = self.evaluator.__class__(solver=solver, planner=planner)
+        metric = evaluator.get_metric(self.metric_spec, **self.metric_kwargs)
+
+        params = self._complete_params(params)
+        run_params = self._filter_solver_params_for_solver(solver, params)
+        per_run = []
+
+        for _ in range(num_runs):
+            if hasattr(solver, "D_pi"):
+                solver.D_pi = params["D_pi"]
+            solver.run(**run_params)
+            value = metric()
+            per_run.append(self._as_float_metric(value))
+
+        return {
+            "stage": "grid",
+            "params": dict(params),
+            "metric": float(np.mean(per_run)),
+            "per_run_metrics": per_run,
+        }
+
+    @staticmethod
+    def _as_float_metric(value):
         try:
             import torch
         except ImportError:
@@ -712,11 +801,28 @@ class FOGASHyperOptimizer:
         return accepts_var_kwargs, accepted_params
 
     def _filter_solver_params(self, params):
+        return self._filter_solver_params_for_solver(self.solver, params)
+
+    def _filter_solver_params_for_solver(self, solver, params):
         run_params = self._strip_derived(params)
-        accepts_var_kwargs, accepted_params = self._solver_run_capabilities()
+        accepts_var_kwargs, accepted_params = self._solver_run_capabilities_for_solver(solver)
         if accepts_var_kwargs:
             return dict(run_params)
         return {key: value for key, value in run_params.items() if key in accepted_params}
+
+    @staticmethod
+    def _solver_run_capabilities_for_solver(solver):
+        signature = inspect.signature(solver.run)
+        accepts_var_kwargs = any(
+            p.kind == inspect.Parameter.VAR_KEYWORD
+            for p in signature.parameters.values()
+        )
+        accepted_params = {
+            name
+            for name, p in signature.parameters.items()
+            if name != "self" and p.kind != inspect.Parameter.VAR_POSITIONAL
+        }
+        return accepts_var_kwargs, accepted_params
 
     def _validate_tunable_params(self, param_names):
         param_names = tuple(param_names)
