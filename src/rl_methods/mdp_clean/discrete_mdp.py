@@ -129,7 +129,7 @@ class DiscreteMDP:
         feature_dim = int(omega.numel())
         for x in range(self.N):
             for a in range(self.A):
-                values.append(torch.dot(self._feature(phi, x, a, feature_dim), omega))
+                values.append(torch.dot(self._feature(phi, x, a, feature_dim, device=omega.device), omega))
         return torch.stack(values).to(dtype=torch.float64)
 
     def _normalize_psi(self, psi, feature_dim):
@@ -196,7 +196,7 @@ class DiscreteMDP:
 
         for x in range(self.N):
             for a in range(self.A):
-                feat = self._feature(phi, x, a, feature_dim)
+                feat = self._feature(phi, x, a, feature_dim, device=psi_matrix.device)
                 rows.append(feat @ psi_matrix)
         P_mat = torch.vstack([row.reshape(1, -1) for row in rows])
         self._validate_transition_matrix(P_mat)
