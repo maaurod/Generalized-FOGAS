@@ -122,6 +122,7 @@ class FOGASEvaluator:
         max_steps,
         seed=None,
         goal_state=None,
+        terminal_states=None,
         compare_with_optimal=False,
     ):
         """
@@ -133,7 +134,7 @@ class FOGASEvaluator:
             num_trajectories=num_trajectories,
             max_steps=max_steps,
             seed=seed,
-            goal_state=goal_state,
+            terminal_states=self._terminal_states(terminal_states, goal_state),
         )
 
         optimal_value = None
@@ -144,7 +145,7 @@ class FOGASEvaluator:
                 num_trajectories=num_trajectories,
                 max_steps=max_steps,
                 seed=seed,
-                goal_state=goal_state,
+                terminal_states=self._terminal_states(terminal_states, goal_state),
             )
 
         return self._comparison_result(
@@ -197,7 +198,7 @@ class FOGASEvaluator:
             },
         )
 
-    def _average_simulated_return(self, pi, num_trajectories, max_steps, seed=None, goal_state=None):
+    def _average_simulated_return(self, pi, num_trajectories, max_steps, seed=None, terminal_states=None):
         returns = []
         for idx in range(int(num_trajectories)):
             current_seed = None if seed is None else int(seed) + idx
@@ -205,7 +206,7 @@ class FOGASEvaluator:
                 pi=pi,
                 max_steps=max_steps,
                 seed=current_seed,
-                goal_state=goal_state,
+                terminal_states=terminal_states,
             )
             returns.append(self._discounted_return(trajectory, self.mdp.gamma))
         return float(np.mean(returns)) if returns else 0.0
@@ -218,7 +219,7 @@ class FOGASEvaluator:
                 pi=pi,
                 max_steps=max_steps,
                 seed=current_seed,
-                goal_state=goal_state,
+                terminal_states=[goal_state],
             )
             successes += int(bool(trajectory) and trajectory[-1]["next_state"] == int(goal_state))
         return float(successes / num_trajectories) if num_trajectories else 0.0
@@ -317,6 +318,7 @@ class FOGASEvaluator:
             max_steps = kwargs.get("max_steps", 100)
             seed = kwargs.get("seed")
             goal_state = kwargs.get("goal_state")
+            terminal_states = kwargs.get("terminal_states")
             maximize = kwargs.get("maximize", True)
             sign = -1.0 if maximize else 1.0
             return lambda: sign * self.average_return(
@@ -325,6 +327,7 @@ class FOGASEvaluator:
                 max_steps=max_steps,
                 seed=seed,
                 goal_state=goal_state,
+                terminal_states=terminal_states,
             )["policy"]
 
         if name == "greedy_average_return":
@@ -332,6 +335,7 @@ class FOGASEvaluator:
             max_steps = kwargs.get("max_steps", 100)
             seed = kwargs.get("seed")
             goal_state = kwargs.get("goal_state")
+            terminal_states = kwargs.get("terminal_states")
             maximize = kwargs.get("maximize", True)
             sign = -1.0 if maximize else 1.0
             return lambda: sign * self.average_return(
@@ -340,6 +344,7 @@ class FOGASEvaluator:
                 max_steps=max_steps,
                 seed=seed,
                 goal_state=goal_state,
+                terminal_states=terminal_states,
             )["policy"]
 
         if name == "success_rate":
@@ -438,7 +443,27 @@ class FOGASEvaluator:
         planner = self._require_planner()
         self.mdp.print_policy(planner.pi_star)
 
-    def simulate_trajectory(self, pi=None, policy_mode=None, max_steps=100, seed=None, goal_state=None):
+    @staticmethod
+    def _terminal_states(terminal_states=None, goal_state=None):
+        states = set()
+        if terminal_states is not None:
+            if isinstance(terminal_states, (int, np.integer)):
+                states.add(int(terminal_states))
+            else:
+                states.update(int(state) for state in terminal_states)
+        if goal_state is not None:
+            states.add(int(goal_state))
+        return states
+
+    def simulate_trajectory(
+        self,
+        pi=None,
+        policy_mode=None,
+        max_steps=100,
+        seed=None,
+        goal_state=None,
+        terminal_states=None,
+    ):
         """
         Simulate a single trajectory.
 
@@ -456,6 +481,7 @@ class FOGASEvaluator:
         else:
             pi = self._as_policy_tensor(pi)
 
+        terminal_states = self._terminal_states(terminal_states, goal_state)
         trajectory = []
         state = int(self.mdp.x0)
 
@@ -483,10 +509,11 @@ class FOGASEvaluator:
                     "step": step,
                     "was_self_loop": next_state == state,
                     "reached_goal": bool(goal_state is not None and next_state == int(goal_state)),
+                    "terminal": next_state in terminal_states,
                 }
             )
 
-            if goal_state is not None and next_state == int(goal_state):
+            if next_state in terminal_states:
                 break
             state = next_state
 
@@ -502,6 +529,7 @@ class FOGASEvaluator:
         show_probabilities=False,
         show_probabilities_first_n=5,
         goal_state=None,
+        terminal_states=None,
         show_value_info=True,
     ):
         """
@@ -521,6 +549,9 @@ class FOGASEvaluator:
         print(f"Initial State: {self.mdp.states[self.mdp.x0]}")
         if goal_state is not None:
             print(f"Goal State: {self.mdp.states[goal_state]}")
+        terminal_states = self._terminal_states(terminal_states, goal_state)
+        if terminal_states:
+            print(f"Terminal States: {[int(self.mdp.states[state]) for state in sorted(terminal_states)]}")
         print(f"Discount Factor (gamma): {self.mdp.gamma}")
         print(f"\n{'-' * 70}\n")
 
@@ -531,6 +562,7 @@ class FOGASEvaluator:
                 max_steps=max_steps,
                 seed=current_seed,
                 goal_state=goal_state,
+                terminal_states=terminal_states,
             )
 
             if num_trajectories > 1:
