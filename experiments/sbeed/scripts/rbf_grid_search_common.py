@@ -1,3 +1,14 @@
+"""Shared utilities for fixed RBF SBEED grid searches.
+
+The deterministic and stochastic RBF scripts import this module to avoid
+duplicating the 5x5 gridworld, RBF feature construction, evaluation metrics,
+CSV schema, and multiprocessing loop.
+
+The helpers intentionally keep the experiment logic explicit: each top-level
+script provides the list of configurations to try, while this file handles the
+common mechanics of running, scoring, resuming, and printing results.
+"""
+
 from __future__ import annotations
 
 import argparse
@@ -43,6 +54,8 @@ PIT_GRID = 18
 WALL_STATES = {6, 7, 12}
 TERMINAL_STATES = {GOAL_GRID, PIT_GRID}
 
+# CSV columns are kept stable so result files from different RBF searches can
+# be ranked and compared with the same analysis code.
 CSV_FIELDS = [
     "ok",
     "run_id",

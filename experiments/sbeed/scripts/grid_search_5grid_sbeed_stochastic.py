@@ -1,3 +1,14 @@
+"""Grid search for tabular MultiLinearSBEED on the stochastic 5x5 grid.
+
+This script evaluates the multi-step linear SBEED implementation after the
+building-version stages. The environment is the 5x5 grid with walls, a goal,
+a pit, and stochastic action execution. Results are written as CSV rows so
+partially completed searches can be resumed or inspected later.
+
+Only experiment orchestration lives here: environment definition, config
+sampling, training calls, evaluation, and CSV serialization.
+"""
+
 from __future__ import annotations
 
 import argparse
@@ -34,6 +45,8 @@ from rl_methods.sbeed.sbeed_spec import DiscreteMDPSpec  # noqa: E402
 # DEFAULT SEARCH SETTINGS
 # ============================================================
 
+# Output and run-count defaults. Command-line arguments can override these when
+# launching a shorter local run or a longer cluster run.
 DEFAULT_SEARCH_DIR = REPO_ROOT / "data/results/sbeed"
 RESULTS_CSV_NAME = "sbeed_tabular_stochastic_grid_search.csv"
 
@@ -62,6 +75,8 @@ CONFIG_SEED = 123
 # STOCHASTIC 5x5 GRID PROBLEM
 # ============================================================
 
+# Grid convention: states are row-major indices, actions are
+# 0=up, 1=down, 2=left, 3=right. Goal and pit terminate episodes.
 states = torch.arange(25, dtype=torch.long)
 actions = torch.arange(4, dtype=torch.long)
 

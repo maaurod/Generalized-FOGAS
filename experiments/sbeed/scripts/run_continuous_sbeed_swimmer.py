@@ -1,3 +1,10 @@
+"""Small smoke run for ContinuousSBEED on Gymnasium Swimmer.
+
+This script mirrors the Pendulum smoke run but targets MuJoCo Swimmer when the
+Gymnasium MuJoCo extras are installed. It is useful for checking that the
+continuous solver is not hard-coded to Pendulum-specific dimensions.
+"""
+
 from __future__ import annotations
 
 import argparse
@@ -17,6 +24,7 @@ from rl_methods.sbeed.solvers import ContinuousSBEED
 
 
 def make_swimmer_env():
+    """Create the newest available Swimmer environment version."""
     last_error = None
     for env_id in ("Swimmer-v5", "Swimmer-v4"):
         try:
@@ -30,6 +38,7 @@ def make_swimmer_env():
 
 
 def build_solver(env, args: argparse.Namespace) -> ContinuousSBEED:
+    """Create ContinuousSBEED modules for the selected Swimmer environment."""
     obs_dim = int(np.prod(env.observation_space.shape))
     action_dim = int(np.prod(env.action_space.shape))
     value_param = ContinuousNeuralValueParam(

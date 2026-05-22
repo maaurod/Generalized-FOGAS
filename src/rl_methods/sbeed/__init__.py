@@ -1,4 +1,11 @@
-"""SBEED algorithm exports."""
+"""
+Public exports for the SBEED implementation.
+
+The package exposes both the final solvers and the historical staged solvers.
+Use `DiscreteSBEED` and `ContinuousSBEED` for new work. Use the classes in
+`building_versions` when reproducing the thesis development stages or comparing
+specific implementation choices.
+"""
 
 from .features import (
     ContinuousGaussianPolicyParam,

@@ -1,3 +1,11 @@
+"""Small smoke run for ContinuousSBEED on Pendulum-v1.
+
+Use this script to verify that the continuous solver, Gymnasium environment,
+and parametrization modules run end-to-end before launching the larger grid
+search. Defaults are intentionally short and are not meant to be the best
+reported hyperparameters.
+"""
+
 from __future__ import annotations
 
 import argparse
@@ -17,6 +25,7 @@ from rl_methods.sbeed.solvers import ContinuousSBEED
 
 
 def build_solver(env, args: argparse.Namespace) -> ContinuousSBEED:
+    """Create the value, rho, and Gaussian policy modules used by the solver."""
     obs_dim = int(np.prod(env.observation_space.shape))
     action_dim = int(np.prod(env.action_space.shape))
     value_param = ContinuousNeuralValueParam(

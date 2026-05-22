@@ -1,3 +1,5 @@
+"""Evaluation helpers for finite discrete SBEED experiments."""
+
 from __future__ import annotations
 
 from typing import Any, Callable, Dict, Optional, Tuple, Union

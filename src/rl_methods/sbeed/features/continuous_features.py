@@ -1,3 +1,10 @@
+"""Parametrization modules for continuous SBEED.
+
+Continuous SBEED uses neural scalar value/rho models and a Gaussian policy. The
+policy implementation here uses fixed random Fourier features for the mean so
+the policy is nonlinear in observations but still compact.
+"""
+
 from __future__ import annotations
 
 import math

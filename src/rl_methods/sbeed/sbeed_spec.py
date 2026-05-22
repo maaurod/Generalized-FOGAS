@@ -1,3 +1,5 @@
+"""Small finite-MDP metadata object used by the staged SBEED solvers."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -14,6 +16,9 @@ class DiscreteMDPSpec:
     This is intentionally lighter than a model-based MDP class. It stores the
     state/action dimensions, discount, optional initial state, and the feature
     maps needed by SBEED.
+
+    It does not store transition probabilities or rewards. Online solvers
+    receive those through `transition_fn` and `reward_fn` in `run`.
     """
 
     n_states: int

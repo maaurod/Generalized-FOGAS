@@ -1,0 +1,252 @@
+import torch
+
+
+class DiscreteMDP:
+    """
+    Generic finite MDP container.
+
+    This class owns only the discrete model description: states, actions,
+    discount, initial state, reward vector r, and transition matrix P.
+    Linear reward/transition inputs are accepted only as construction helpers.
+    Feature tables are intentionally not stored here.
+    """
+
+    def __init__(
+        self,
+        states,
+        actions,
+        gamma,
+        x0,
+        r=None,
+        reward_fn=None,
+        omega=None,
+        P=None,
+        transition_fn=None,
+        psi=None,
+        phi=None,
+        terminal_states=None,
+    ):
+        self.states = self._as_1d_tensor(states, "states")
+        self.actions = self._as_1d_tensor(actions, "actions")
+        self.N = int(self.states.numel())
+        self.A = int(self.actions.numel())
+
+        if self.N <= 0:
+            raise ValueError("states must be non-empty")
+        if self.A <= 0:
+            raise ValueError("actions must be non-empty")
+
+        self.gamma = float(gamma)
+        if not (0.0 <= self.gamma < 1.0):
+            raise ValueError(f"gamma must be in [0, 1), got {self.gamma}")
+
+        self.x0 = int(x0)
+        if self.x0 < 0 or self.x0 >= self.N:
+            raise ValueError(f"x0 must be in [0, {self.N}), got {self.x0}")
+
+        self.terminal_states = set(terminal_states) if terminal_states is not None else set()
+        self.nu0 = torch.zeros(self.N, dtype=torch.float64)
+        self.nu0[self.x0] = 1.0
+
+        reward_sources = sum(src is not None for src in (r, reward_fn, omega))
+        if reward_sources != 1:
+            raise ValueError("Provide exactly one reward source: r, reward_fn, or omega.")
+
+        transition_sources = sum(src is not None for src in (P, transition_fn, psi))
+        if transition_sources != 1:
+            raise ValueError("Provide exactly one transition source: P, transition_fn, or psi.")
+
+        if (omega is not None or psi is not None) and phi is None:
+            raise ValueError("phi is required when constructing from omega or psi.")
+
+        feature_dim = None
+        if phi is not None:
+            feature_dim = self._feature_dim(phi)
+
+        self.has_omega = omega is not None
+        self.omega = None
+        if omega is not None:
+            self.omega = self._as_vector(omega, "omega")
+            if self.omega.shape != (feature_dim,):
+                raise ValueError(f"omega must have shape ({feature_dim},), got {tuple(self.omega.shape)}")
+
+        self.r = self._build_reward(r=r, reward_fn=reward_fn, omega=self.omega, phi=phi)
+        self.P = self._build_transition(P=P, transition_fn=transition_fn, psi=psi, phi=phi, feature_dim=feature_dim)
+
+    @staticmethod
+    def _as_1d_tensor(value, name):
+        if isinstance(value, torch.Tensor):
+            out = value.clone()
+        else:
+            out = torch.as_tensor(value)
+        if out.ndim != 1:
+            raise ValueError(f"{name} must be one-dimensional, got shape {tuple(out.shape)}")
+        return out
+
+    @staticmethod
+    def _as_vector(value, name, device=None):
+        if isinstance(value, torch.Tensor):
+            out = value.clone().to(dtype=torch.float64)
+        else:
+            out = torch.as_tensor(value, dtype=torch.float64)
+        if device is not None:
+            out = out.to(device)
+        return out.reshape(-1)
+
+    def _feature_dim(self, phi):
+        first_state = self.states[0].item()
+        first_action = self.actions[0].item()
+        feat = self._as_vector(phi(first_state, first_action), "phi")
+        if feat.numel() == 0:
+            raise ValueError("phi must return a non-empty feature vector")
+        return int(feat.numel())
+
+    def _feature(self, phi, state_idx, action_idx, feature_dim, device=None):
+        state = self.states[state_idx].item()
+        action = self.actions[action_idx].item()
+        feat = self._as_vector(phi(state, action), "phi", device=device)
+        if feat.shape != (feature_dim,):
+            raise ValueError(f"phi must return shape ({feature_dim},), got {tuple(feat.shape)}")
+        return feat
+
+    def _build_reward(self, r, reward_fn, omega, phi):
+        if r is not None:
+            r_vec = self._as_vector(r, "r")
+            if r_vec.shape != (self.N * self.A,):
+                raise ValueError(f"r must have shape ({self.N * self.A},), got {tuple(r_vec.shape)}")
+            return r_vec
+
+        values = []
+        if reward_fn is not None:
+            for x in range(self.N):
+                state = self.states[x].item()
+                for a in range(self.A):
+                    action = self.actions[a].item()
+                    values.append(float(reward_fn(state, action)))
+            return torch.tensor(values, dtype=torch.float64)
+
+        feature_dim = int(omega.numel())
+        for x in range(self.N):
+            for a in range(self.A):
+                values.append(torch.dot(self._feature(phi, x, a, feature_dim), omega))
+        return torch.stack(values).to(dtype=torch.float64)
+
+    def _normalize_psi(self, psi, feature_dim):
+        if callable(psi):
+            def psi_fn(next_state):
+                return self._as_vector(psi(next_state), "psi")
+            return psi_fn
+
+        if isinstance(psi, dict):
+            psi_dict = {
+                int(k): self._as_vector(v, "psi")
+                for k, v in psi.items()
+            }
+
+            def psi_fn(next_state):
+                key = int(next_state)
+                if key not in psi_dict:
+                    raise KeyError(f"psi is missing key for next state {key}")
+                return psi_dict[key]
+            return psi_fn
+
+        psi_matrix = torch.as_tensor(psi, dtype=torch.float64)
+        if psi_matrix.shape != (feature_dim, self.N):
+            raise ValueError(f"psi must have shape ({feature_dim}, {self.N}), got {tuple(psi_matrix.shape)}")
+
+        def psi_fn(next_state):
+            matches = (self.states == next_state).nonzero(as_tuple=True)[0]
+            if len(matches) == 0:
+                raise KeyError(f"Unknown next state {next_state}")
+            return psi_matrix[:, int(matches[0].item())]
+        return psi_fn
+
+    def _build_transition(self, P, transition_fn, psi, phi, feature_dim):
+        if P is not None:
+            P_mat = torch.as_tensor(P, dtype=torch.float64).clone()
+            if P_mat.shape != (self.N * self.A, self.N):
+                raise ValueError(f"P must have shape ({self.N * self.A}, {self.N}), got {tuple(P_mat.shape)}")
+            self._validate_transition_matrix(P_mat)
+            return P_mat
+
+        rows = []
+        if transition_fn is not None:
+            for x in range(self.N):
+                state = self.states[x].item()
+                for a in range(self.A):
+                    action = self.actions[a].item()
+                    row = torch.as_tensor(transition_fn(state, action), dtype=torch.float64).reshape(-1)
+                    if row.shape != (self.N,):
+                        raise ValueError(f"transition_fn must return shape ({self.N},), got {tuple(row.shape)}")
+                    rows.append(row)
+            P_mat = torch.vstack(rows)
+            self._validate_transition_matrix(P_mat)
+            return P_mat
+
+        psi_fn = self._normalize_psi(psi, feature_dim)
+        psi_columns = []
+        for xp in range(self.N):
+            next_state = self.states[xp].item()
+            col = self._as_vector(psi_fn(next_state), "psi")
+            if col.shape != (feature_dim,):
+                raise ValueError(f"psi({next_state}) must have shape ({feature_dim},), got {tuple(col.shape)}")
+            psi_columns.append(col)
+        psi_matrix = torch.stack(psi_columns, dim=1)
+
+        for x in range(self.N):
+            for a in range(self.A):
+                feat = self._feature(phi, x, a, feature_dim)
+                rows.append(feat @ psi_matrix)
+        P_mat = torch.vstack([row.reshape(1, -1) for row in rows])
+        self._validate_transition_matrix(P_mat)
+        return P_mat
+
+    @staticmethod
+    def _validate_transition_matrix(P):
+        eps = 1e-10
+        if torch.any(P < -eps):
+            min_val = float(P.min().item())
+            raise ValueError(f"P contains negative probabilities; min={min_val:.3e}")
+        row_sums = P.sum(dim=1)
+        if not torch.allclose(row_sums, torch.ones_like(row_sums), atol=1e-6):
+            bad = torch.where(torch.abs(row_sums - 1.0) > 1e-6)[0][:10].tolist()
+            raise ValueError(f"P rows must sum to 1. Bad row indices: {bad}")
+
+    def get_reward(self, verbose=False):
+        if verbose:
+            print("\n=== Reward Vector r ===")
+            print("Shape:", tuple(self.r.shape))
+            for x in range(self.N):
+                for a in range(self.A):
+                    idx = x * self.A + a
+                    print(f"r(s={self.states[x].item()}, a={self.actions[a].item()}) = {self.r[idx].item():.4f}")
+            print("")
+        return self.r
+
+    def get_transition_matrix(self, verbose=False):
+        if verbose:
+            print("\n=== Transition Matrix P ===")
+            print("Shape:", tuple(self.P.shape))
+            print("First few rows:\n", self.P[: min(5, self.P.shape[0])], "\n")
+        return self.P
+
+    def print_policy(self, pi):
+        pi = pi.detach().cpu() if isinstance(pi, torch.Tensor) else torch.as_tensor(pi)
+        for i, s in enumerate(self.states.detach().cpu() if isinstance(self.states, torch.Tensor) else self.states):
+            best_a_idx = int(torch.argmax(pi[i]).item())
+            best_action = self.actions.detach().cpu()[best_a_idx] if isinstance(self.actions, torch.Tensor) else self.actions[best_a_idx]
+            print(f"  State {s}: ", end="")
+            for j, a in enumerate(self.actions.detach().cpu() if isinstance(self.actions, torch.Tensor) else self.actions):
+                print(f"pi(a={a}|s={s}) = {pi[i, j].item():.2f}  ", end="")
+            print(f"--> best action: {best_action}")
+        print()
+
+    def to(self, device):
+        self.states = self.states.to(device)
+        self.actions = self.actions.to(device)
+        self.nu0 = self.nu0.to(device)
+        self.r = self.r.to(device)
+        self.P = self.P.to(device)
+        if self.omega is not None:
+            self.omega = self.omega.to(device)
+        return self

@@ -1,3 +1,17 @@
+"""Final discrete SBEED solver.
+
+`DiscreteSBEED` is the implementation intended for new finite-MDP experiments.
+It keeps the stable multi-step update order from the staged solvers:
+
+    1. update rho to fit the multi-step smoothed backup,
+    2. update V by minimizing the SBEED primal objective,
+    3. update pi with an implicit natural policy-gradient step.
+
+The class accepts parametrization modules instead of raw feature callables.
+Linear modules use manual fast-path gradients for reproducibility with the
+building versions; neural modules use PyTorch autograd and Adam.
+"""
+
 from __future__ import annotations
 
 import random
@@ -25,6 +39,9 @@ class DiscreteSBEED:
         - linear value/rho/policy modules use manual fast-path gradients,
         - nonlinear value/rho modules use Adam and autograd,
         - every policy uses an implicit CG Fisher/NPG update.
+
+    Use this class when the environment has explicit finite state/action ids.
+    Use `ContinuousSBEED` for Gymnasium-style continuous observations/actions.
     """
 
     def __init__(
@@ -202,6 +219,12 @@ class DiscreteSBEED:
             group["lr"] = lr
 
     def _valid_fragment_starts(self) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        """Find replay indices that can start valid multi-step fragments.
+
+        A fragment is valid if it has `rollout_length` transitions available or
+        if it hits a terminal transition earlier. This prevents a sampled target
+        from reading across an episode boundary or bootstrapping after a done.
+        """
         if self.n == 0:
             raise ValueError("Replay buffer D is empty. Collect data before sampling fragments.")
 
@@ -252,6 +275,7 @@ class DiscreteSBEED:
         lengths: torch.Tensor,
         terminals: torch.Tensor,
     ) -> Dict[str, torch.Tensor]:
+        """Materialize a batch of padded fragments plus masks and discounts."""
         offsets = torch.arange(self.rollout_length, dtype=torch.int64, device=self.device)
         fragment_indices = starts[:, None] + offsets[None, :]
         safe_indices = fragment_indices.clamp_max(max(self.n - 1, 0))
@@ -318,6 +342,7 @@ class DiscreteSBEED:
         ).to(dtype=dtype)
 
     def _target_delta_no_grad(self, batch: Dict[str, torch.Tensor], dtype: torch.dtype) -> torch.Tensor:
+        """Compute multi-step targets while freezing current V and policy."""
         with torch.no_grad():
             rewards = self._discounted_rewards(batch, dtype)
             log_pi = self._weighted_policy_log_probs(batch, dtype=dtype)
@@ -332,6 +357,7 @@ class DiscreteSBEED:
         return float(sq_norm ** 0.5)
 
     def _linear_value_update(self, batch: Dict[str, torch.Tensor], step_size: float) -> float:
+        """Manual Adam update for the linear value fast path."""
         if not isinstance(self.value_param, LinearValueParam):
             raise TypeError("Linear value fast path requires LinearValueParam")
         dtype = self.value_param.theta.dtype
@@ -357,6 +383,7 @@ class DiscreteSBEED:
         return float(torch.linalg.norm(grad_theta).item())
 
     def _nonlinear_value_update(self, batch: Dict[str, torch.Tensor], step_size: float) -> float:
+        """Autograd Adam update for neural value modules."""
         if self.value_optimizer is None:
             return 0.0
         dtype = self._param_dtype(self.value_param, fallback=torch.float32)
@@ -377,6 +404,7 @@ class DiscreteSBEED:
         return grad_norm
 
     def _linear_rho_update(self, batch: Dict[str, torch.Tensor], step_size: float) -> float:
+        """Manual Adam update for linear rho regression to target delta."""
         if not isinstance(self.rho_param, LinearRhoParam):
             raise TypeError("Linear rho fast path requires LinearRhoParam")
         dtype = self.rho_param.beta.dtype
@@ -393,6 +421,7 @@ class DiscreteSBEED:
         return float(torch.linalg.norm(grad_beta).item())
 
     def _nonlinear_rho_update(self, batch: Dict[str, torch.Tensor], step_size: float) -> float:
+        """Autograd Adam update for neural rho modules."""
         if self.rho_optimizer is None:
             return 0.0
         dtype = self._param_dtype(self.rho_param, fallback=torch.float32)
@@ -438,6 +467,11 @@ class DiscreteSBEED:
         self,
         batch: Dict[str, torch.Tensor],
     ) -> Tuple[torch.Tensor, torch.Tensor, float]:
+        """Build the SBEED policy gradient before Fisher preconditioning.
+
+        The advantage-like term is `(1 - eta) * delta + eta * rho - V`.
+        It is detached so the policy step differentiates only log pi.
+        """
         dtype = self._param_dtype(self.policy_param, fallback=torch.float32)
         with torch.no_grad():
             rewards = self._discounted_rewards(batch, dtype)
@@ -467,6 +501,7 @@ class DiscreteSBEED:
         state_indices: torch.Tensor,
         params: list[torch.nn.Parameter],
     ) -> torch.Tensor:
+        """Fisher-vector product via a categorical-policy KL Hessian."""
         dtype = self._param_dtype(self.policy_param, fallback=torch.float32)
         with torch.no_grad():
             old_probs = self.policy_param.probs(state_indices).to(dtype=dtype).clamp_min(1e-12)
@@ -486,6 +521,7 @@ class DiscreteSBEED:
         state_indices: torch.Tensor,
         params: list[torch.nn.Parameter],
     ) -> Tuple[torch.Tensor, Dict[str, float]]:
+        """Approximately solve `(F + damping I) direction = policy_grad`."""
         def matvec(v: torch.Tensor) -> torch.Tensor:
             return self._policy_kl_hvp(v, state_indices, params) + self.fisher_damping * v
 
@@ -538,6 +574,7 @@ class DiscreteSBEED:
         batch: Dict[str, torch.Tensor],
         step_size: float,
     ) -> Tuple[float, float, Dict[str, float]]:
+        """Apply the CG natural-gradient policy update."""
         grad_flat, _, grad_norm = self._policy_loss_and_grad(batch)
         params = self._trainable_params(self.policy_param)
         if not params or grad_flat.numel() == 0:
@@ -553,6 +590,7 @@ class DiscreteSBEED:
         return grad_norm, float(torch.linalg.norm(direction).item()), diagnostics
 
     def step(self) -> Dict[str, float]:
+        """Run one SBEED optimization step: rho, value, then policy."""
         if self.n == 0:
             raise ValueError("Replay buffer D is empty. Collect data before calling step().")
         starts, lengths, terminals = self._batch_fragment_starts()
@@ -605,6 +643,7 @@ class DiscreteSBEED:
         return stats
 
     def objective(self) -> Dict[str, float]:
+        """Evaluate the empirical multi-step SBEED objective on valid replay."""
         if self.n == 0:
             raise ValueError("Replay buffer D is empty. Cannot compute objective.")
         with torch.no_grad():
@@ -634,6 +673,7 @@ class DiscreteSBEED:
         state: int,
         epsilon: float = 0.0,
     ) -> int:
+        """Sample from the current policy with optional epsilon exploration."""
         state = int(state)
         if state < 0 or state >= self.n_states:
             raise ValueError("state must be in [0, n_states)")
@@ -678,6 +718,7 @@ class DiscreteSBEED:
         terminal_states: Optional[set] = None,
         reset_state_fn: Optional[Callable[[], int]] = None,
     ) -> int:
+        """Collect online transitions and append them to FIFO replay."""
         n_steps = int(n_steps)
         if n_steps < 0:
             raise ValueError("n_steps must be non-negative")
@@ -737,6 +778,11 @@ class DiscreteSBEED:
         reset_state_fn: Optional[Callable[[], int]] = None,
         log_every: int = 10,
     ) -> torch.Tensor:
+        """Train from online finite-MDP interaction.
+
+        `transition_fn` may return just `next_state`, `(next_state, reward)`,
+        or Gym-style tuples. If reward is absent, `reward_fn` is used.
+        """
         episodes = int(episodes)
         collect_per_episode = int(collect_per_episode)
         updates_per_episode = int(updates_per_episode)

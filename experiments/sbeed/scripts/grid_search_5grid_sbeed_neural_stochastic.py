@@ -1,3 +1,11 @@
+"""Neural DiscreteSBEED search on the stochastic 5x5 grid.
+
+This is the neural counterpart of the stochastic RBF search. It evaluates the
+final modular discrete solver under transition noise, where entropy, batch size,
+dual correction strength, and Fisher damping have the largest effect on
+stability.
+"""
+
 from __future__ import annotations
 
 import argparse
@@ -48,6 +56,7 @@ from rl_methods.sbeed.solvers import DiscreteSBEED  # noqa: E402
 
 
 def make_grid_150_stochastic() -> List[Dict[str, Any]]:
+    """Build and trim the stochastic neural search grid."""
     grid_150_stochastic = []
     for episodes in [800, 1200]:
         for batch_size in [512, 1024, 2048]:

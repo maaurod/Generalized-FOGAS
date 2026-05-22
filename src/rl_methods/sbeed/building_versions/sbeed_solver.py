@@ -1,3 +1,18 @@
+"""Stage 1 SBEED solver: one-step linear prototype.
+
+This file is intentionally close to the mathematical derivation in the report.
+It keeps all trainable objects as explicit tensors:
+
+    theta -> value weights V(s)
+    beta  -> dual weights rho(s, a)
+    W     -> softmax policy weights pi(a | s)
+
+The important implementation choice in this first version is the dual update:
+`beta` is fitted by closed-form ridge regression to the one-step smoothed
+Bellman target. Later versions replace that exact solve with SGD/Adam so the
+same update order can work with nonlinear parametrizations.
+"""
+
 from __future__ import annotations
 
 import random
@@ -20,10 +35,18 @@ class SBEEDSolver:
         rho_beta(s, a) = beta^T rho_features(s, a)
         pi_W(a | s) = softmax(W policy_features(s))[a]
 
+    Stage purpose:
+        Validate the one-step SBEED objective and the analytic linear
+        gradients in the simplest setting.
+
+    Difference from the next version:
+        This solver stores four-field transitions `(s, a, r, s_next)` and
+        always bootstraps from `s_next`. `SBEEDSolverSGDRho` adds terminal flags
+        and changes the rho update from closed-form ridge regression to SGD.
+
     The solver starts with an empty replay buffer D. Each `run` call resets D
     and grows a fresh buffer by interacting with a user-provided discrete
-    transition function. Parameter updates use a shared tau-controlled decay,
-    where j is the per-run update index.
+    transition function.
     """
 
     def __init__(
