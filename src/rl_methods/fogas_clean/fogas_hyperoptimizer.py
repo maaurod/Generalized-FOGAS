@@ -797,8 +797,7 @@ class FOGASHyperOptimizer:
             "best_metric": float(best["metric"]),
         }
 
-    @staticmethod
-    def _history_frame(history):
+    def _history_frame(self, history):
         import pandas as pd
 
         rows = []
@@ -814,8 +813,7 @@ class FOGASHyperOptimizer:
             rows.append(row)
         return pd.DataFrame(rows)
 
-    @staticmethod
-    def _save_history_frame(df, results_output):
+    def _save_history_frame(self, df, results_output):
         output_path = Path(results_output)
         output_path.parent.mkdir(parents=True, exist_ok=True)
         df.to_csv(output_path, index=False)
