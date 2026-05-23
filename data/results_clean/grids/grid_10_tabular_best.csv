@@ -1,0 +1,2 @@
+alpha,eta,rho,D_theta,T,beta,seed,device,status,error,elapsed_seconds,greedy_avg_reward,greedy_goal_count,greedy_success_rate,reached_goal,final_state,path_length,run_idx
+0.00025,0.0002,0.0005,60.0,20000,1e-07,42,cuda,ok,,12.09806006285362,-0.9202335569231277,10,1.0,True,99,24,32
