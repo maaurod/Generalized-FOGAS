@@ -818,6 +818,46 @@ class FOGASHyperOptimizer:
         output_path.parent.mkdir(parents=True, exist_ok=True)
         df.to_csv(output_path, index=False)
 
+    @staticmethod
+    def plot_saved_boxplot(
+        csv_path,
+        variable,
+        metric_column="metric",
+        variable_label=None,
+        metric_label=None,
+        title=None,
+        sort_values=True,
+        showmeans=True,
+        figsize=(8, 4),
+        ax=None,
+    ):
+        import pandas as pd
+        import matplotlib.pyplot as plt
+
+        df = pd.read_csv(csv_path)
+        if variable not in df.columns:
+            raise ValueError(f"Column {variable!r} not found in {csv_path}.")
+        if metric_column not in df.columns:
+            raise ValueError(f"Column {metric_column!r} not found in {csv_path}.")
+
+        grouped = df[[variable, metric_column]].dropna().groupby(variable)
+        keys = list(grouped.groups.keys())
+        if sort_values:
+            keys = sorted(keys)
+
+        data = [grouped.get_group(key)[metric_column].to_numpy() for key in keys]
+        labels = [str(key) for key in keys]
+
+        if ax is None:
+            _, ax = plt.subplots(figsize=figsize)
+
+        ax.boxplot(data, labels=labels, showmeans=showmeans)
+        ax.set_xlabel(variable_label or variable)
+        ax.set_ylabel(metric_label or metric_column)
+        ax.set_title(title or f"{metric_label or metric_column} by {variable_label or variable}")
+        ax.grid(axis="y", alpha=0.3)
+        return ax
+
     def _print_summary(self, result, parameters, top_k):
         history = result["history"]
         print("\n=== FOGAS Hyperparameter Optimization ===")
