@@ -163,18 +163,21 @@ class FOGASEvaluator:
         num_trajectories,
         max_steps,
         seed=None,
+        policy_mode="greedy",
+        terminal_states=None,
         compare_with_optimal=False,
     ):
         """
-        Fraction of greedy-policy trajectories that reach goal_state.
+        Fraction of selected-policy trajectories that reach goal_state.
         """
-        pi = self.get_policy("greedy")
+        pi = self.get_policy(policy_mode)
         policy_value = self._success_rate(
             pi=pi,
             goal_state=goal_state,
             num_trajectories=num_trajectories,
             max_steps=max_steps,
             seed=seed,
+            terminal_states=self._terminal_states(terminal_states, goal_state),
         )
 
         optimal_value = None
@@ -186,6 +189,7 @@ class FOGASEvaluator:
                 num_trajectories=num_trajectories,
                 max_steps=max_steps,
                 seed=seed,
+                terminal_states=self._terminal_states(terminal_states, goal_state),
             )
 
         return self._comparison_result(
@@ -193,6 +197,8 @@ class FOGASEvaluator:
             optimal_value,
             {
                 "goal_state": int(goal_state),
+                "policy_mode": policy_mode,
+                "terminal_states": sorted(self._terminal_states(terminal_states, goal_state)),
                 "num_trajectories": int(num_trajectories),
                 "max_steps": int(max_steps),
             },
@@ -211,15 +217,17 @@ class FOGASEvaluator:
             returns.append(self._discounted_return(trajectory, self.mdp.gamma))
         return float(np.mean(returns)) if returns else 0.0
 
-    def _success_rate(self, pi, goal_state, num_trajectories, max_steps, seed=None):
+    def _success_rate(self, pi, goal_state, num_trajectories, max_steps, seed=None, terminal_states=None):
         successes = 0
+        terminal_states = self._terminal_states(terminal_states, goal_state)
         for idx in range(int(num_trajectories)):
             current_seed = None if seed is None else int(seed) + idx
             trajectory = self.simulate_trajectory(
                 pi=pi,
                 max_steps=max_steps,
                 seed=current_seed,
-                terminal_states=[goal_state],
+                goal_state=goal_state,
+                terminal_states=terminal_states,
             )
             successes += int(bool(trajectory) and trajectory[-1]["next_state"] == int(goal_state))
         return float(successes / num_trajectories) if num_trajectories else 0.0
@@ -349,9 +357,11 @@ class FOGASEvaluator:
 
         if name == "success_rate":
             goal_state = kwargs["goal_state"]
+            policy_mode = kwargs.get("policy_mode", "greedy")
             num_trajectories = kwargs.get("num_trajectories", 10)
             max_steps = kwargs.get("max_steps", 100)
             seed = kwargs.get("seed")
+            terminal_states = kwargs.get("terminal_states")
             maximize = kwargs.get("maximize", True)
             sign = -1.0 if maximize else 1.0
             return lambda: sign * self.success_rate(
@@ -359,6 +369,8 @@ class FOGASEvaluator:
                 num_trajectories=num_trajectories,
                 max_steps=max_steps,
                 seed=seed,
+                policy_mode=policy_mode,
+                terminal_states=terminal_states,
             )["policy"]
 
         if name == "on_data_quality":

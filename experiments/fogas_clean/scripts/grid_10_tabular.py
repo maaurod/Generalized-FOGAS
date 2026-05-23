@@ -243,20 +243,6 @@ def save_results(results):
         successful.head(1).to_csv(BEST_CSV, index=False)
 
 
-def success_rate(evaluator, policy_mode, goal, terminal_states):
-    count = 0
-    for idx in range(NUM_TRAJECTORIES):
-        trajectory = evaluator.simulate_trajectory(
-            policy_mode=policy_mode,
-            max_steps=MAX_STEPS,
-            seed=SEED + idx,
-            goal_state=goal,
-            terminal_states=terminal_states,
-        )
-        count += int(bool(trajectory) and trajectory[-1]["next_state"] == int(goal))
-    return float(count / NUM_TRAJECTORIES)
-
-
 def run_candidate(solver, evaluator, params, device, goal, terminal_states, progress):
     start = time.perf_counter()
     alpha, eta, rho, d_theta = params
@@ -295,7 +281,14 @@ def run_candidate(solver, evaluator, params, device, goal, terminal_states, prog
             seed=SEED,
             terminal_states=terminal_states,
         )["policy"]
-        greedy_success_rate = success_rate(evaluator, "greedy", goal, terminal_states)
+        greedy_success_rate = evaluator.success_rate(
+            goal_state=goal,
+            policy_mode="greedy",
+            num_trajectories=NUM_TRAJECTORIES,
+            max_steps=MAX_STEPS,
+            seed=SEED,
+            terminal_states=terminal_states,
+        )["policy"]
 
         solver_avg_reward = evaluator.average_return(
             policy_mode="solver",
@@ -304,7 +297,14 @@ def run_candidate(solver, evaluator, params, device, goal, terminal_states, prog
             seed=SEED,
             terminal_states=terminal_states,
         )["policy"]
-        solver_success_rate = success_rate(evaluator, "solver", goal, terminal_states)
+        solver_success_rate = evaluator.success_rate(
+            goal_state=goal,
+            policy_mode="solver",
+            num_trajectories=NUM_TRAJECTORIES,
+            max_steps=MAX_STEPS,
+            seed=SEED,
+            terminal_states=terminal_states,
+        )["policy"]
 
         row.update(
             {

@@ -1,5 +1,6 @@
 import inspect
 import itertools
+from pathlib import Path
 
 import numpy as np
 
@@ -64,6 +65,7 @@ class FOGASHyperOptimizer:
         progress=False,
         progress_leave=True,
         grid_n_jobs=1,
+        results_output=None,
         **run_kwargs,
     ):
         mode = self._canonical_choice(mode, {"grid", "smart"}, "mode")
@@ -152,6 +154,9 @@ class FOGASHyperOptimizer:
                 "history": history,
             }
         )
+        result["history_df"] = self._history_frame(history)
+        if results_output is not None:
+            self._save_history_frame(result["history_df"], results_output)
 
         if print_summary:
             self._print_summary(result, parameters=parameters, top_k=top_k)
@@ -791,6 +796,29 @@ class FOGASHyperOptimizer:
             "best_params": dict(best["params"]),
             "best_metric": float(best["metric"]),
         }
+
+    @staticmethod
+    def _history_frame(history):
+        import pandas as pd
+
+        rows = []
+        for idx, record in enumerate(history, start=1):
+            row = {
+                "run_idx": idx,
+                "stage": record["stage"],
+                "metric": float(record["metric"]),
+            }
+            row.update(record["params"])
+            for run_idx, value in enumerate(record.get("per_run_metrics", []), start=1):
+                row[f"per_run_metric_{run_idx}"] = float(value)
+            rows.append(row)
+        return pd.DataFrame(rows)
+
+    @staticmethod
+    def _save_history_frame(df, results_output):
+        output_path = Path(results_output)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        df.to_csv(output_path, index=False)
 
     def _print_summary(self, result, parameters, top_k):
         history = result["history"]
