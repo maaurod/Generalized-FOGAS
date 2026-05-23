@@ -36,15 +36,16 @@ sbatch <<SBATCH_EOF
 
 cd /shared/home/mauro.diaz/work/FOGAS
 source venv/bin/activate
-
+export PATH="/shared/home/mauro.diaz/work/FOGAS/venv/bin:\$PATH"
 
 echo "✅ Job started at: \$(date)"
 echo "🖥️  Running on node: \$(hostname)"
+echo "🐍 Python: \$(which python3)"
 echo "🎮 GPUs available:"
 nvidia-smi --query-gpu=index,name,memory.total --format=csv,noheader
 echo ""
 
-python3 /shared/home/mauro.diaz/work/FOGAS/experiments/fogas_clean/scripts/grid_10_tabular.py --resume --no-progress
+/shared/home/mauro.diaz/work/FOGAS/venv/bin/python3 /shared/home/mauro.diaz/work/FOGAS/experiments/fogas_clean/scripts/grid_10_tabular.py --resume --no-progress
 
 echo ""
 echo "✅ Job finished at: \$(date)"
