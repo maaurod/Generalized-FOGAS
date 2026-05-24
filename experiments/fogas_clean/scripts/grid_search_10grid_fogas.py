@@ -50,8 +50,8 @@ DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 # ---------------------------------------------------------------------
 # Fixed FOGAS hyperparameters
 # ---------------------------------------------------------------------
-FOGAS_ALPHA = 0.001 / 2
-FOGAS_ETA = 0.0002
+FOGAS_ALPHA = 0.005
+FOGAS_ETA = 0.002
 FOGAS_RHO = 0.0005
 FOGAS_D_THETA = 60
 FOGAS_T = 20_000
