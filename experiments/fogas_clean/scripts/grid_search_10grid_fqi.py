@@ -26,7 +26,7 @@ def find_root(current_path, marker="setup.py"):
 
 
 PROJECT_ROOT = find_root(Path(__file__).resolve())
-RESULTS_DIR = PROJECT_ROOT / "data" / "results_clean" / "10grid"
+RESULTS_DIR = PROJECT_ROOT / "data" / "results_clean" / "10grid_tabular"
 OUTPUT_CSV = RESULTS_DIR / "fqi_dataset_grid.csv"
 
 if str(PROJECT_ROOT / "src") not in sys.path:
@@ -246,11 +246,6 @@ def evaluate_policy_family(evaluator, dataset, policy_mode, goal, terminal_state
 def main():
     set_seed(SEED)
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
-    mdp, phi, states, actions, goal, pits, walls, terminal_states = build_mdp()
-    planner = Planner(mdp)
-    phi_full = full_feature_matrix(states, actions, phi)
-    d_star = (planner.mu_star.cpu() / (planner.mu_star.cpu().sum() + 1e-300)).reshape(mdp.N, mdp.A).sum(dim=1)
-    v_star = planner.v_star.detach().cpu()
 
     candidates = list(itertools.product(
         RESET_CONFIGS.items(),
@@ -281,6 +276,12 @@ def main():
                 "error": "",
             }
             try:
+                mdp, phi, states, actions, goal, pits, walls, terminal_states = build_mdp()
+                planner = Planner(mdp)
+                phi_full = full_feature_matrix(states, actions, phi)
+                d_star = (planner.mu_star.cpu() / (planner.mu_star.cpu().sum() + 1e-300)).reshape(mdp.N, mdp.A).sum(dim=1)
+                v_star = planner.v_star.detach().cpu()
+
                 collect_dataset(mdp, planner, goal, pits, walls, reset_cfg, eps, proportions, n_steps, dataset_path)
                 analyzer = DatasetAnalyzer(dataset_path)
                 dataset = FOGASDataset(dataset_path)
@@ -302,6 +303,7 @@ def main():
                     ridge=FQI_RIDGE,
                     augment_terminal_transitions=FQI_AUGMENT_TERMINAL_TRANSITIONS,
                 )
+                planner.to(DEVICE)
                 solver.run(
                     K=FQI_K,
                     tau=FQI_TAU,
