@@ -13,7 +13,15 @@ class FOGASHyperOptimizer:
     a FOGASEvaluator instance, so planner-dependent checks stay in the evaluator.
     """
 
-    ALLOWED_PARAMETERS = {"alpha", "rho", "eta", "T", "D_theta"}
+    ALLOWED_PARAMETERS = {
+        "alpha",
+        "rho",
+        "eta",
+        "T",
+        "D_theta",
+        "c_min",
+        "state_weight_update",
+    }
     PARAMETER_ALIASES = {"et": "eta"}
 
     def __init__(self, solver, evaluator, metric, metric_kwargs=None, seed=42):
