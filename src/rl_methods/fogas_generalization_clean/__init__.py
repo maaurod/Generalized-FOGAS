@@ -2,6 +2,7 @@
 
 from .solvers import (
     BetaSolver,
+    FinalLinearSolver,
     LinearBetaPiSolver,
     LinearSolver,
     LossThetaBetaPiSolver,
@@ -40,6 +41,7 @@ __all__ = [
     "VBetaLogitSolver",
     "LinearPolicyFOGAS",
     "LinearSolver",
+    "FinalLinearSolver",
     "LinearBetaPiSolver",
     "LossThetaBetaPiSolver",
     "RegularizedLossThetaBetaPiSolver",

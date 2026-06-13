@@ -11,6 +11,7 @@ VBetaObjectivePolicySolver = import_module(
 from .vbeta_logit_solver import VBetaLogitSolver
 from .linear_policy_fogas import LinearPolicyFOGAS
 from .linear_solver import LinearSolver
+from .final_linear_solver import FinalLinearSolver
 from .linear_beta_pi_solver import LinearBetaPiSolver
 from .loss_theta_beta_pi_solver import LossThetaBetaPiSolver
 from .regularized_loss_theta_beta_pi_solver import RegularizedLossThetaBetaPiSolver
@@ -22,6 +23,7 @@ __all__ = [
     "VBetaLogitSolver",
     "LinearPolicyFOGAS",
     "LinearSolver",
+    "FinalLinearSolver",
     "LinearBetaPiSolver",
     "LossThetaBetaPiSolver",
     "RegularizedLossThetaBetaPiSolver",
