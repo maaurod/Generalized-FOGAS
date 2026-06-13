@@ -49,7 +49,7 @@ from rl_methods.mdp_clean import DiscreteMDP, Planner
 
 SEED = 42
 NUM_TRAJECTORIES = 100
-MAX_STEPS = 50
+MAX_STEPS = 10
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 ALPHA_GRID = [2e-4, 5e-4, 1e-3, 2e-3, 5e-3]
@@ -218,13 +218,17 @@ def ordered_results_frame(results):
 
     return df.sort_values(
         by=[
+            "greedy_success_rate",
             "solver_success_rate",
+            "greedy_avg_return",
             "solver_avg_return",
+            "greedy_v_x0",
             "solver_v_x0",
+            "greedy_v_gap",
             "solver_v_gap",
             "elapsed_seconds",
         ],
-        ascending=[False, False, False, True, True],
+        ascending=[False, False, False, False, False, False, True, True, True],
         na_position="last",
     ).reset_index(drop=True)
 
