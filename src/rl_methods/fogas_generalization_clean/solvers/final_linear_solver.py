@@ -22,7 +22,20 @@ class FinalLinearSolver:
     _THETA_MODES = {"reg_adaptive", "reg_fixed", "projection"}
     _THETA_OPTIMIZERS = {"sgd", "adam"}
     _THETA_START_MODES = {"zero", "warm"}
-    _BETA_UPDATES = {"fogas_full", "fogas_diag"}
+    _BETA_UPDATES = {
+        "fogas_full",
+        "fogas_diag",
+        "projected_gradient",
+        "fenchel_br",
+        "fenchel_mirror",
+    }
+    _BETA_UPDATE_ALIASES = {
+        "full": "fogas_full",
+        "diagonal": "fogas_diag",
+        "diag": "fogas_diag",
+        "gradient": "projected_gradient",
+        "best_response": "fenchel_br",
+    }
     _POLICY_OPTIMIZERS = {"sgd", "adam", "npg"}
     _POLICY_GRADIENTS = {"exact", "reinforce"}
     _EPS = 1e-12
@@ -52,6 +65,7 @@ class FinalLinearSolver:
         theta_lambda=None,
         theta_include_beta_cov=False,
         beta_update="fogas_full",
+        beta_projection_radius=None,
         d_theta_scale=1.0,
         print_params=False,
         dataset_verbose=False,
@@ -115,6 +129,10 @@ class FinalLinearSolver:
             "theta_include_beta_cov",
         )
         self.beta_update = self._canonical_beta_update(beta_update)
+        self.beta_projection_radius = self._canonical_optional_positive_float(
+            beta_projection_radius,
+            "beta_projection_radius",
+        )
         self.d_theta_scale = self._canonical_positive_float(d_theta_scale, "d_theta_scale")
 
         self.dataset = FOGASDataset(csv_path=csv_path, verbose=dataset_verbose)
@@ -268,8 +286,10 @@ class FinalLinearSolver:
     @classmethod
     def _canonical_beta_update(cls, beta_update):
         name = str(beta_update).lower()
+        name = cls._BETA_UPDATE_ALIASES.get(name, name)
         if name not in cls._BETA_UPDATES:
-            raise ValueError("beta_update must be either 'fogas_full' or 'fogas_diag'")
+            valid = sorted(cls._BETA_UPDATES | set(cls._BETA_UPDATE_ALIASES))
+            raise ValueError(f"beta_update must be one of {valid}")
         return name
 
     @classmethod
@@ -581,24 +601,69 @@ class FinalLinearSolver:
             )
         return torch.arange(self.N, dtype=torch.long, device=self.device)
 
-    def _compute_beta_update_direction(self, beta_grad):
+    def _project_beta(self, beta_t, beta_projection_radius):
+        if beta_projection_radius is None:
+            return beta_t
+        norm = torch.linalg.norm(beta_t)
+        if norm <= beta_projection_radius:
+            return beta_t
+        return beta_t * (beta_projection_radius / norm.clamp_min(self._EPS))
+
+    def _compute_beta_update(self, beta_t, beta_grad, eta, rho):
+        beta_projection_radius = self.beta_projection_radius
+        beta_projection_radius_diagnostic = (
+            None if beta_projection_radius is None else float(beta_projection_radius)
+        )
         if self.beta_update == "fogas_full":
             direction = self.H_inv @ beta_grad
+            beta_next = (1.0 / (1.0 + rho * eta)) * (beta_t + eta * direction)
             diagnostics = {
                 "beta_update": self.beta_update,
                 "beta_diag_min": None,
                 "beta_diag_max": None,
+                "beta_projection_radius": beta_projection_radius_diagnostic,
             }
-            return direction, diagnostics
+            return beta_next, direction, diagnostics
 
-        diag_h = torch.diagonal(self.H).clamp_min(self._EPS)
-        direction = beta_grad / diag_h
+        if self.beta_update == "fogas_diag":
+            diag_h = torch.diagonal(self.H).clamp_min(self._EPS)
+            direction = beta_grad / diag_h
+            beta_next = (1.0 / (1.0 + rho * eta)) * (beta_t + eta * direction)
+            diagnostics = {
+                "beta_update": self.beta_update,
+                "beta_diag_min": float(diag_h.min().detach().cpu().item()),
+                "beta_diag_max": float(diag_h.max().detach().cpu().item()),
+                "beta_projection_radius": beta_projection_radius_diagnostic,
+            }
+            return beta_next, direction, diagnostics
+
+        if self.beta_update == "projected_gradient":
+            direction = beta_grad
+            beta_next = self._project_beta(beta_t + eta * direction, beta_projection_radius)
+            diagnostics = {
+                "beta_update": self.beta_update,
+                "beta_diag_min": None,
+                "beta_diag_max": None,
+                "beta_projection_radius": beta_projection_radius_diagnostic,
+            }
+            return beta_next, direction, diagnostics
+
+        best_response = self.H_inv @ beta_grad
+        if self.beta_update == "fenchel_br":
+            beta_next = best_response
+            direction = beta_next - beta_t
+        elif self.beta_update == "fenchel_mirror":
+            direction = best_response - beta_t
+            beta_next = beta_t + eta * direction
+        else:
+            raise ValueError(f"unsupported beta_update '{self.beta_update}'")
         diagnostics = {
             "beta_update": self.beta_update,
-            "beta_diag_min": float(diag_h.min().detach().cpu().item()),
-            "beta_diag_max": float(diag_h.max().detach().cpu().item()),
+            "beta_diag_min": None,
+            "beta_diag_max": None,
+            "beta_projection_radius": beta_projection_radius_diagnostic,
         }
-        return direction, diagnostics
+        return beta_next, direction, diagnostics
 
     def get_diagnostics(self):
         return self.diagnostics_history
@@ -622,6 +687,7 @@ class FinalLinearSolver:
         theta_lambda=None,
         theta_include_beta_cov=None,
         beta_update=None,
+        beta_projection_radius=None,
         policy_optimizer="sgd",
         policy_gradient="exact",
         reinforce_samples=1,
@@ -650,6 +716,7 @@ class FinalLinearSolver:
         previous_theta_lambda = self.theta_lambda
         previous_theta_include_beta_cov = self.theta_include_beta_cov
         previous_beta_update = self.beta_update
+        previous_beta_projection_radius = self.beta_projection_radius
         previous_d_theta_scale = self.d_theta_scale
 
         if theta_mode is not None:
@@ -674,6 +741,11 @@ class FinalLinearSolver:
             )
         if beta_update is not None:
             self.beta_update = self._canonical_beta_update(beta_update)
+        if beta_projection_radius is not None:
+            self.beta_projection_radius = self._canonical_positive_float(
+                beta_projection_radius,
+                "beta_projection_radius",
+            )
         if d_theta_scale is not None:
             self.d_theta_scale = self._canonical_positive_float(d_theta_scale, "d_theta_scale")
 
@@ -710,6 +782,7 @@ class FinalLinearSolver:
             self.theta_lambda = previous_theta_lambda
             self.theta_include_beta_cov = previous_theta_include_beta_cov
             self.beta_update = previous_beta_update
+            self.beta_projection_radius = previous_beta_projection_radius
             self.d_theta_scale = previous_d_theta_scale
 
     def _run_impl(
@@ -819,11 +892,12 @@ class FinalLinearSolver:
             beta_objective = (coeff * td_error).mean()
             total_loss = (1.0 - self.gamma) * v_x0 + beta_objective
 
-            # Beta is updated in u-feature space through the existing
-            # ridge-preconditioned matrix.
             beta_grad = (self.U_sample.T @ td_error) / self.n
-            beta_update_direction, beta_diagnostics = self._compute_beta_update_direction(
-                beta_grad
+            beta_next, beta_update_direction, beta_diagnostics = self._compute_beta_update(
+                beta_t=beta_t,
+                beta_grad=beta_grad,
+                eta=eta,
+                rho=rho,
             )
 
             # State weights define the policy objective over Q values; clipping
@@ -880,7 +954,8 @@ class FinalLinearSolver:
                 policy_direction_kind = "cg_fisher"
                 psi_next = psi_t + alpha * policy_direction
 
-            beta_t = (1.0 / (1.0 + rho * eta)) * (beta_t + eta * beta_update_direction)
+            beta_step = beta_next - beta_t
+            beta_t = beta_next
             theta_bar_t = theta_bar_t + theta_t
             theta_bar_history.append(theta_bar_t.clone())
             psi_history.append(psi_next.clone())
@@ -901,6 +976,7 @@ class FinalLinearSolver:
                 "beta_direction_norm": float(
                     torch.linalg.norm(beta_update_direction).detach().cpu().item()
                 ),
+                "beta_step_norm": float(torch.linalg.norm(beta_step).detach().cpu().item()),
                 "theta_grad_norm": float(theta_grad_norm),
                 "theta_norm": float(torch.linalg.norm(theta_t).detach().cpu().item()),
                 "theta_mode": self.theta_mode,
