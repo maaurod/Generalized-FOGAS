@@ -72,8 +72,11 @@ BASE_ETA = 1e-4
 BASE_T = 1000
 BASE_REINFORCE_SAMPLES = 4
 NPG_ALPHA_GRID = [1e-5, 3e-5, 1e-4, 3e-4, 1e-3, 3e-3, 1e-2, 3e-2]
-REINFORCE_SAMPLES_GRID = [1, 4, 16, 64]
-FISHER_DAMPING = 1e-3
+SGD_ALPHA_GRID = [1e-5, 3e-5, 1e-4, 3e-4, 1e-3, 3e-3, 1e-2]
+REINFORCE_SAMPLES_GRID = [2**power for power in range(8)]
+REINFORCE_SEEDS = [42, 43, 44, 45, 46]
+FISHER_DAMPING_GRID = [1e-5, 3e-5, 1e-4, 3e-4, 1e-3, 3e-3, 1e-2]
+BASE_FISHER_DAMPING = 1e-3
 CG_ITERS = 50
 CG_TOL = 1e-10
 
@@ -258,7 +261,7 @@ def build_mdp(problem_name, device):
     return mdp, planner
 
 
-def make_solver(problem_name, dataset_path, device):
+def make_solver(problem_name, dataset_path, device, seed):
     problem = PROBLEMS[problem_name]
     u_features = TabularFeatures(N, A)
     q_features = TabularFeatures(N, A)
@@ -273,7 +276,7 @@ def make_solver(problem_name, dataset_path, device):
         u_function=LinearFunction(u_features),
         q_function=LinearQFunction(q_features),
         policy_features=policy_features,
-        seed=SEED,
+        seed=seed,
         device=device,
         theta_include_beta_cov=False,
         theta_mode="reg_fixed",
@@ -297,6 +300,7 @@ def candidate_key(row):
         float(row["fisher_damping"]),
         int(row["cg_iters"]),
         float(row["cg_tol"]),
+        int(row.get("seed", SEED)),
     )
 
 
@@ -313,6 +317,8 @@ def make_candidate(
     policy_gradient,
     alpha=BASE_ALPHA,
     reinforce_samples=BASE_REINFORCE_SAMPLES,
+    fisher_damping=BASE_FISHER_DAMPING,
+    seed=SEED,
 ):
     problem = PROBLEMS[problem_name]
     return {
@@ -329,11 +335,12 @@ def make_candidate(
         "policy_optimizer": policy_optimizer,
         "policy_gradient": policy_gradient,
         "reinforce_samples": int(reinforce_samples),
-        "fisher_damping": float(FISHER_DAMPING),
+        "fisher_damping": float(fisher_damping),
         "cg_iters": int(CG_ITERS),
         "cg_tol": float(CG_TOL),
         "state_weight_update": "normal",
         "dataset_path": str(problem["dataset_path"]),
+        "seed": int(seed),
     }
 
 
@@ -350,26 +357,41 @@ def all_candidates(problem_names):
         )
 
         for alpha in NPG_ALPHA_GRID:
+            for fisher_damping in FISHER_DAMPING_GRID:
+                candidates.append(
+                    make_candidate(
+                        problem_name=problem_name,
+                        ablation="npg_exact_alpha_fisher",
+                        policy_optimizer="npg",
+                        policy_gradient="exact",
+                        alpha=alpha,
+                        fisher_damping=fisher_damping,
+                    )
+                )
+
+        for alpha in SGD_ALPHA_GRID:
             candidates.append(
                 make_candidate(
                     problem_name=problem_name,
-                    ablation="npg_exact_alpha",
-                    policy_optimizer="npg",
+                    ablation="sgd_exact_alpha",
+                    policy_optimizer="sgd",
                     policy_gradient="exact",
                     alpha=alpha,
                 )
             )
 
         for reinforce_samples in REINFORCE_SAMPLES_GRID:
-            candidates.append(
-                make_candidate(
-                    problem_name=problem_name,
-                    ablation="adam_reinforce_samples",
-                    policy_optimizer="adam",
-                    policy_gradient="reinforce",
-                    reinforce_samples=reinforce_samples,
+            for seed in REINFORCE_SEEDS:
+                candidates.append(
+                    make_candidate(
+                        problem_name=problem_name,
+                        ablation="adam_reinforce_samples",
+                        policy_optimizer="adam",
+                        policy_gradient="reinforce",
+                        reinforce_samples=reinforce_samples,
+                        seed=seed,
+                    )
                 )
-            )
 
     return candidates
 
@@ -408,7 +430,7 @@ def base_row(candidate, device, status="ok", error=""):
             "theta_include_beta_cov": False,
             "num_trajectories": int(NUM_TRAJECTORIES),
             "max_steps": int(MAX_STEPS),
-            "seed": int(SEED),
+            "seed": int(candidate.get("seed", SEED)),
             "device": str(device),
             "status": status,
             "error": error,
@@ -488,6 +510,7 @@ def run_candidate(candidate, mdp, planner, dataset_path, device):
     start = time.perf_counter()
     row = base_row(candidate, device)
     problem_name = candidate["problem"]
+    seed = int(candidate.get("seed", SEED))
     terminal_states = set(PROBLEMS[problem_name]["terminal_states"])
 
     try:
@@ -495,6 +518,7 @@ def run_candidate(candidate, mdp, planner, dataset_path, device):
             problem_name=problem_name,
             dataset_path=dataset_path,
             device=device,
+            seed=seed,
         )
         solver.run(
             alpha=candidate["alpha"],
@@ -517,13 +541,13 @@ def run_candidate(candidate, mdp, planner, dataset_path, device):
             mdp=mdp,
             pi=solver.pi,
             terminal_states=terminal_states,
-            seed=SEED,
+            seed=seed,
         )
         greedy_stats = evaluate_policy_rollouts(
             mdp=mdp,
             pi=greedy_policy(solver.pi),
             terminal_states=terminal_states,
-            seed=SEED,
+            seed=seed,
         )
 
         row.update(
@@ -546,7 +570,7 @@ def run_candidate(candidate, mdp, planner, dataset_path, device):
 def run_candidate_worker(payload):
     candidate, device_str, torch_threads = payload
     configure_worker_threads(torch_threads)
-    set_seed(SEED)
+    set_seed(int(candidate.get("seed", SEED)))
     device = torch.device(device_str)
     mdp, planner = build_mdp(candidate["problem"], device)
     return run_candidate(
@@ -592,15 +616,40 @@ def build_stats_frame(results):
         "greedy_avg_reward",
     ]
     rows = []
-    group_columns = ["problem", "ablation", "policy_optimizer", "policy_gradient"]
+    group_columns = [
+        "problem",
+        "ablation",
+        "policy_optimizer",
+        "policy_gradient",
+        "alpha",
+        "reinforce_samples",
+        "fisher_damping",
+        "cg_iters",
+        "cg_tol",
+    ]
     for group_key, group in df.groupby(group_columns, dropna=False):
-        problem, ablation, policy_optimizer, policy_gradient = group_key
+        (
+            problem,
+            ablation,
+            policy_optimizer,
+            policy_gradient,
+            alpha,
+            reinforce_samples,
+            fisher_damping,
+            cg_iters,
+            cg_tol,
+        ) = group_key
         ok = group[group["status"] == "ok"].copy()
         row = {
             "problem": problem,
             "ablation": ablation,
             "policy_optimizer": policy_optimizer,
             "policy_gradient": policy_gradient,
+            "alpha": float(alpha),
+            "reinforce_samples": int(reinforce_samples),
+            "fisher_damping": float(fisher_damping),
+            "cg_iters": int(cg_iters),
+            "cg_tol": float(cg_tol),
             "count": int(len(group)),
             "ok_count": int(len(ok)),
             "failed_count": int((group["status"] == "failed").sum()),
@@ -610,12 +659,22 @@ def build_stats_frame(results):
             values = ok[metric] if metric in ok.columns else pd.Series(dtype=float)
             row[f"{metric}_best"] = float(values.max()) if not values.empty else np.nan
             row[f"{metric}_mean"] = float(values.mean()) if not values.empty else np.nan
-            row[f"{metric}_std"] = float(values.std(ddof=1)) if len(values) > 1 else 0.0
+            metric_std = float(values.std(ddof=1)) if len(values) > 1 else 0.0
+            metric_sem = metric_std / math.sqrt(len(values)) if len(values) > 1 else 0.0
+            row[f"{metric}_std"] = metric_std
+            row[f"{metric}_sem"] = metric_sem
+            row[f"{metric}_ci95"] = 1.96 * metric_sem
         rows.append(row)
 
     return pd.DataFrame(rows).sort_values(
-        by=["problem", "ablation", "greedy_success_rate_best", "solver_success_rate_best"],
-        ascending=[True, True, False, False],
+        by=[
+            "problem",
+            "ablation",
+            "greedy_success_rate_best",
+            "solver_success_rate_best",
+            "greedy_avg_reward_best",
+        ],
+        ascending=[True, True, False, False, False],
         na_position="last",
     )
 
