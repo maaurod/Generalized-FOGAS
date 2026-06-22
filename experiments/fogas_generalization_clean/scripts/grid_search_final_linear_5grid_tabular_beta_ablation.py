@@ -70,10 +70,23 @@ INTENDED_PROB = 0.8
 
 BASE_ALPHA = 1e-3
 BASE_ETA = 1e-4
-BASE_T = 1000
 
-T_GRID = [500, 750, 1000, 1500, 2000, 3000, 4000]
-FOGAS_ETA_GRID = [1e-5, 3e-5, 1e-4, 3e-4, 1e-3]
+T_GRID = [1500, 3000]
+FOGAS_ETA_GRID = [
+    3e-6,
+    5e-6,
+    1e-5,
+    2e-5,
+    3e-5,
+    5e-5,
+    1e-4,
+    2e-4,
+    3e-4,
+    5e-4,
+    1e-3,
+    2e-3,
+    3e-3,
+]
 PROJECTED_ETA_GRID = [1e-6, 3e-6, 1e-5, 3e-5, 1e-4, 3e-4, 1e-3]
 MIRROR_ETA_GRID = [0.01, 0.03, 0.05, 0.1, 0.2, 0.5, 0.75, 1.0]
 PROJECTION_RADIUS_GRID = [None, 0.1, 0.25, 0.5, 1.0, 2.0, 5.0, 10.0]
@@ -88,7 +101,21 @@ PROBLEMS = {
         "theta_lr": 3e-1,
         "policy_gradient": "reinforce",
         "baseline_rho": 0.05,
-        "rho_grid": [0.01, 0.03, 0.05, 0.1, 0.2],
+        "rho_grid": [
+            0.001,
+            0.003,
+            0.005,
+            0.01,
+            0.02,
+            0.03,
+            0.05,
+            0.075,
+            0.1,
+            0.15,
+            0.2,
+            0.3,
+            0.5,
+        ],
     },
     "stochastic": {
         "dataset_path": DATASETS_DIR / "5grid_stochastic.csv",
@@ -99,7 +126,23 @@ PROBLEMS = {
         "theta_lr": 3e-2,
         "policy_gradient": "exact",
         "baseline_rho": 1.0,
-        "rho_grid": [0.1, 0.3, 1.0, 3.0, 10.0],
+        "rho_grid": [
+            0.03,
+            0.05,
+            0.1,
+            0.2,
+            0.3,
+            0.5,
+            1.0,
+            1.5,
+            2.0,
+            3.0,
+            5.0,
+            7.5,
+            10.0,
+            15.0,
+            20.0,
+        ],
     },
 }
 
@@ -347,26 +390,21 @@ def all_candidates(problem_names):
         problem = PROBLEMS[problem_name]
         baseline_rho = float(problem["baseline_rho"])
 
-        candidates.append(
-            make_candidate(
-                problem_name=problem_name,
-                beta_update="fogas_full",
-                T=BASE_T,
-                eta=BASE_ETA,
-                rho=baseline_rho,
-            )
-        )
-
-        for T, eta, rho in itertools.product(T_GRID, FOGAS_ETA_GRID, problem["rho_grid"]):
-            candidates.append(
-                make_candidate(
-                    problem_name=problem_name,
-                    beta_update="fogas_diag",
-                    T=T,
-                    eta=eta,
-                    rho=rho,
+        for beta_update in ("fogas_full", "fogas_diag"):
+            for T, eta, rho in itertools.product(
+                T_GRID,
+                FOGAS_ETA_GRID,
+                problem["rho_grid"],
+            ):
+                candidates.append(
+                    make_candidate(
+                        problem_name=problem_name,
+                        beta_update=beta_update,
+                        T=T,
+                        eta=eta,
+                        rho=rho,
+                    )
                 )
-            )
 
         for T, eta, radius in itertools.product(
             T_GRID,
