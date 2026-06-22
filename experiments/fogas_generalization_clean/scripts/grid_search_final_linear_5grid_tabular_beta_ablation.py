@@ -70,8 +70,9 @@ INTENDED_PROB = 0.8
 
 BASE_ALPHA = 1e-3
 BASE_ETA = 1e-4
+BASE_T = 3000
 
-T_GRID = [1500, 3000]
+T_GRID = [BASE_T]
 FOGAS_ETA_GRID = [
     3e-6,
     5e-6,
@@ -90,6 +91,7 @@ FOGAS_ETA_GRID = [
 PROJECTED_ETA_GRID = [1e-6, 3e-6, 1e-5, 3e-5, 1e-4, 3e-4, 1e-3]
 MIRROR_ETA_GRID = [0.01, 0.03, 0.05, 0.1, 0.2, 0.5, 0.75, 1.0]
 PROJECTION_RADIUS_GRID = [None, 0.1, 0.25, 0.5, 1.0, 2.0, 5.0, 10.0]
+SENSITIVITY_ETA_GRID = [1e-6, 3e-6, 1e-5, 3e-5, 1e-4, 3e-4, 1e-3, 3e-3, 1e-2]
 
 PROBLEMS = {
     "deterministic": {
@@ -97,10 +99,11 @@ PROBLEMS = {
         "gamma": 0.99,
         "terminal_states": {GOAL_GRID},
         "stochastic": False,
-        "theta_lambda": 1e-3,
-        "theta_lr": 3e-1,
-        "policy_gradient": "reinforce",
-        "baseline_rho": 0.05,
+        "theta_lambda": 1e-7,
+        "theta_lr": 1e-3,
+        "theta_inner_steps": 10,
+        "policy_gradient": "exact",
+        "baseline_rho": 0.03,
         "rho_grid": [
             0.001,
             0.003,
@@ -116,14 +119,16 @@ PROBLEMS = {
             0.3,
             0.5,
         ],
+        "sensitivity_rho_grid": [0.001, 0.003, 0.01, 0.03, 0.1, 0.3, 1.0],
     },
     "stochastic": {
         "dataset_path": DATASETS_DIR / "5grid_stochastic.csv",
         "gamma": 0.9,
         "terminal_states": {GOAL_GRID, PIT_GRID},
         "stochastic": True,
-        "theta_lambda": 1e-4,
-        "theta_lr": 3e-2,
+        "theta_lambda": 3e-7,
+        "theta_lr": 1e-3,
+        "theta_inner_steps": 10,
         "policy_gradient": "exact",
         "baseline_rho": 1.0,
         "rho_grid": [
@@ -143,6 +148,7 @@ PROBLEMS = {
             15.0,
             20.0,
         ],
+        "sensitivity_rho_grid": [0.03, 0.1, 0.3, 1.0, 3.0, 10.0, 20.0],
     },
 }
 
@@ -327,7 +333,7 @@ def make_solver(problem_name, dataset_path, device, beta_update, beta_projection
         theta_mode="reg_fixed",
         theta_lambda=float(problem["theta_lambda"]),
         theta_optimizer="adam",
-        theta_inner_steps=40,
+        theta_inner_steps=int(problem["theta_inner_steps"]),
         theta_lr=float(problem["theta_lr"]),
         theta_start_mode="warm",
         beta_update=beta_update,
@@ -348,12 +354,17 @@ def radius_key(value):
 
 def candidate_key(row):
     return (
+        str(row.get("sweep_family", "main_ablation")),
         str(row["problem"]),
         str(row["beta_update"]),
         int(row["T"]),
         float(row["eta"]),
         float(row["rho"]),
         radius_key(row.get("beta_projection_radius")),
+        float(row.get("theta_lambda", PROBLEMS[str(row["problem"])]["theta_lambda"])),
+        float(row.get("theta_lr", PROBLEMS[str(row["problem"])]["theta_lr"])),
+        int(row.get("theta_inner_steps", PROBLEMS[str(row["problem"])]["theta_inner_steps"])),
+        str(row.get("policy_gradient", PROBLEMS[str(row["problem"])]["policy_gradient"])),
     )
 
 
@@ -363,9 +374,18 @@ def selected_problem_names(problem_arg):
     return [problem_arg]
 
 
-def make_candidate(problem_name, beta_update, T, eta, rho, beta_projection_radius=None):
+def make_candidate(
+    problem_name,
+    beta_update,
+    T,
+    eta,
+    rho,
+    beta_projection_radius=None,
+    sweep_family="main_ablation",
+):
     problem = PROBLEMS[problem_name]
     return {
+        "sweep_family": sweep_family,
         "problem": problem_name,
         "beta_update": beta_update,
         "T": int(T),
@@ -375,7 +395,7 @@ def make_candidate(problem_name, beta_update, T, eta, rho, beta_projection_radiu
         "beta_projection_radius": beta_projection_radius,
         "theta_lambda": float(problem["theta_lambda"]),
         "theta_lr": float(problem["theta_lr"]),
-        "theta_inner_steps": 40,
+        "theta_inner_steps": int(problem["theta_inner_steps"]),
         "policy_optimizer": "adam",
         "policy_gradient": problem["policy_gradient"],
         "reinforce_samples": 4,
@@ -390,21 +410,30 @@ def all_candidates(problem_names):
         problem = PROBLEMS[problem_name]
         baseline_rho = float(problem["baseline_rho"])
 
-        for beta_update in ("fogas_full", "fogas_diag"):
-            for T, eta, rho in itertools.product(
-                T_GRID,
-                FOGAS_ETA_GRID,
-                problem["rho_grid"],
-            ):
-                candidates.append(
-                    make_candidate(
-                        problem_name=problem_name,
-                        beta_update=beta_update,
-                        T=T,
-                        eta=eta,
-                        rho=rho,
-                    )
+        candidates.append(
+            make_candidate(
+                problem_name=problem_name,
+                beta_update="fogas_full",
+                T=BASE_T,
+                eta=BASE_ETA,
+                rho=baseline_rho,
+            )
+        )
+
+        for T, eta, rho in itertools.product(
+            T_GRID,
+            FOGAS_ETA_GRID,
+            problem["rho_grid"],
+        ):
+            candidates.append(
+                make_candidate(
+                    problem_name=problem_name,
+                    beta_update="fogas_diag",
+                    T=T,
+                    eta=eta,
+                    rho=rho,
                 )
+            )
 
         for T, eta, radius in itertools.product(
             T_GRID,
@@ -444,6 +473,23 @@ def all_candidates(problem_names):
                 )
             )
 
+    for problem_name in problem_names:
+        problem = PROBLEMS[problem_name]
+        for eta, rho in itertools.product(
+            SENSITIVITY_ETA_GRID,
+            problem["sensitivity_rho_grid"],
+        ):
+            candidates.append(
+                make_candidate(
+                    problem_name=problem_name,
+                    beta_update="fogas_full",
+                    T=BASE_T,
+                    eta=eta,
+                    rho=rho,
+                    sweep_family="eta_rho_sweep",
+                )
+            )
+
     return candidates
 
 
@@ -452,6 +498,8 @@ def load_existing_results(resume):
         return [], set()
 
     df = pd.read_csv(OUTPUT_CSV)
+    if "sweep_family" not in df.columns:
+        df["sweep_family"] = "main_ablation"
     rows = df.to_dict("records")
     if "status" in df.columns:
         completed_df = df[df["status"] == "ok"].copy()
@@ -670,10 +718,14 @@ def build_stats_frame(results):
         "greedy_avg_reward",
     ]
     rows = []
-    for (problem, beta_update), group in df.groupby(["problem", "beta_update"], dropna=False):
+    for (problem, sweep_family, beta_update), group in df.groupby(
+        ["problem", "sweep_family", "beta_update"],
+        dropna=False,
+    ):
         ok = group[group["status"] == "ok"].copy()
         row = {
             "problem": problem,
+            "sweep_family": sweep_family,
             "beta_update": beta_update,
             "count": int(len(group)),
             "ok_count": int(len(ok)),
@@ -688,8 +740,8 @@ def build_stats_frame(results):
         rows.append(row)
 
     return pd.DataFrame(rows).sort_values(
-        by=["problem", "greedy_success_rate_best", "solver_success_rate_best"],
-        ascending=[True, False, False],
+        by=["problem", "sweep_family", "greedy_success_rate_best", "solver_success_rate_best"],
+        ascending=[True, True, False, False],
         na_position="last",
     )
 
