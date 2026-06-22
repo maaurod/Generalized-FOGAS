@@ -98,33 +98,33 @@ WALL_STATES = {
 }
 TERMINAL_STATES = {GOAL_GRID, *PIT_GRIDS}
 
-ALPHA_GRID = [5e-4, 1e-3, 2e-3, 3e-3, 5e-3]
+ALPHA_GRID = [5e-4, 1e-3, 3e-3, 5e-3]
 ETA_GRID = [3e-5, 1e-4, 3e-4, 1e-3]
 RHO_GRID = [0.1, 0.5, 1.0, 2.0]
-T_GRID = [1000, 2000, 4000]
-THETA_LR_GRID = [1e-2, 3e-2, 1e-1]
-THETA_INNER_STEPS_GRID = [20, 40, 80]
+T_GRID = [5000, 10000, 20000]
+THETA_LR_GRID = [3e-3, 1e-2, 3e-2, 1e-1, 3e-1]
+THETA_INNER_STEPS_GRID = [10, 20]
 THETA_LAMBDA_GRID = [
+    1e-9,
+    1e-8,
+    1e-7,
     1e-6,
-    2e-6,
-    5e-6,
     1e-5,
-    2e-5,
-    5e-5,
     1e-4,
-    2e-4,
-    5e-4,
     1e-3,
 ]
+# Projection radii are centered around the 10x10 tabular default D_theta,
+# sqrt(400 / (1 - 0.9)) ~= 63.
+PROJECTION_D_THETA_GRID = [1e-1, 1.0, 10.0, 100.0, 1000.0]
 
 REINFORCE_SAMPLES = 4
 
 PROBLEMS = {
     "deterministic": {
-        "description": "deterministic 10x10 FinalLinearSolver tabular grid search",
-        "dataset_path": DATASETS_DIR / "10grid_tabular.csv",
-        "output_csv": RESULTS_DIR / "final_linear_10grid_tabular_grid_search.csv",
-        "best_csv": RESULTS_DIR / "final_linear_10grid_tabular_grid_search_best.csv",
+        "description": "deterministic 10x10 FinalLinearSolver tabular grid search on the new dataset",
+        "dataset_path": DATASETS_DIR / "10grid_tabular_new.csv",
+        "output_csv": RESULTS_DIR / "final_linear_10grid_tabular_new_grid_search.csv",
+        "best_csv": RESULTS_DIR / "final_linear_10grid_tabular_new_grid_search_best.csv",
         "intended_prob": 1.0,
     },
     "stochastic": {
@@ -284,7 +284,15 @@ def build_mdp(problem_name, device):
     return mdp, planner
 
 
-def make_solver(dataset_path, device, theta_lr, theta_inner_steps, theta_lambda):
+def make_solver(
+    dataset_path,
+    device,
+    theta_lr,
+    theta_inner_steps,
+    theta_mode,
+    theta_lambda,
+    D_theta,
+):
     u_features = TabularFeatures(N, A)
     q_features = TabularFeatures(N, A)
     policy_features = TabularFeatures(N, A)
@@ -300,8 +308,9 @@ def make_solver(dataset_path, device, theta_lr, theta_inner_steps, theta_lambda)
         policy_features=policy_features,
         seed=SEED,
         device=device,
+        D_theta=D_theta,
         theta_include_beta_cov=False,
-        theta_mode="reg_fixed",
+        theta_mode=theta_mode,
         theta_lambda=theta_lambda,
         theta_optimizer="adam",
         theta_inner_steps=theta_inner_steps,
@@ -309,6 +318,17 @@ def make_solver(dataset_path, device, theta_lr, theta_inner_steps, theta_lambda)
         theta_start_mode="warm",
         beta_update="fogas_full",
     )
+
+
+def optional_float_key(value):
+    if value is None:
+        return "none"
+    try:
+        if pd.isna(value):
+            return "none"
+    except TypeError:
+        pass
+    return f"{float(value):.12g}"
 
 
 def candidate_key(row):
@@ -319,7 +339,9 @@ def candidate_key(row):
         int(row["T"]),
         float(row["theta_lr"]),
         int(row["theta_inner_steps"]),
-        float(row["theta_lambda"]),
+        str(row["theta_mode"]),
+        optional_float_key(row.get("theta_lambda")),
+        optional_float_key(row.get("D_theta")),
     )
 
 
@@ -385,7 +407,7 @@ def blank_metrics():
 
 
 def base_row(params, problem_name, device, status="ok", error=""):
-    alpha, eta, rho, T, theta_lr, theta_inner_steps, theta_lambda = params
+    alpha, eta, rho, T, theta_lr, theta_inner_steps, theta_mode, theta_lambda, D_theta = params
     problem = PROBLEMS[problem_name]
     row = {
         "alpha": float(alpha),
@@ -394,8 +416,9 @@ def base_row(params, problem_name, device, status="ok", error=""):
         "T": int(T),
         "theta_lr": float(theta_lr),
         "theta_inner_steps": int(theta_inner_steps),
-        "theta_lambda": float(theta_lambda),
-        "theta_mode": "reg_fixed",
+        "theta_mode": str(theta_mode),
+        "theta_lambda": None if theta_lambda is None else float(theta_lambda),
+        "D_theta": None if D_theta is None else float(D_theta),
         "theta_optimizer": "adam",
         "theta_start_mode": "warm",
         "theta_include_beta_cov": False,
@@ -460,7 +483,7 @@ def finite_float(value, default=np.nan):
 
 
 def run_candidate(params, problem_name, mdp, planner, dataset_path, device, d_star, v_star):
-    alpha, eta, rho, T, theta_lr, theta_inner_steps, theta_lambda = params
+    alpha, eta, rho, T, theta_lr, theta_inner_steps, theta_mode, theta_lambda, D_theta = params
     start = time.perf_counter()
     row = base_row(params, problem_name, device)
 
@@ -470,7 +493,9 @@ def run_candidate(params, problem_name, mdp, planner, dataset_path, device, d_st
             device=device,
             theta_lr=theta_lr,
             theta_inner_steps=theta_inner_steps,
+            theta_mode=theta_mode,
             theta_lambda=theta_lambda,
+            D_theta=D_theta,
         )
         evaluator = FOGASEvaluator(solver=solver, mdp=mdp, planner=planner)
 
@@ -479,6 +504,8 @@ def run_candidate(params, problem_name, mdp, planner, dataset_path, device, d_st
             eta=eta,
             rho=rho,
             T=T,
+            D_theta=D_theta,
+            theta_mode=theta_mode,
             theta_lr=theta_lr,
             theta_inner_steps=theta_inner_steps,
             theta_lambda=theta_lambda,
@@ -538,16 +565,38 @@ def run_candidate_worker(payload):
 
 
 def all_candidates():
-    return list(
-        itertools.product(
-            ALPHA_GRID,
-            ETA_GRID,
-            RHO_GRID,
-            T_GRID,
-            THETA_LR_GRID,
-            THETA_INNER_STEPS_GRID,
-            THETA_LAMBDA_GRID,
+    theta_candidates = [
+        ("reg_fixed", theta_lambda, None)
+        for theta_lambda in THETA_LAMBDA_GRID
+    ] + [
+        ("projection", None, D_theta)
+        for D_theta in PROJECTION_D_THETA_GRID
+    ]
+
+    return [
+        (*base_params, *theta_params)
+        for base_params, theta_params in itertools.product(
+            itertools.product(
+                ALPHA_GRID,
+                ETA_GRID,
+                RHO_GRID,
+                T_GRID,
+                THETA_LR_GRID,
+                THETA_INNER_STEPS_GRID,
+            ),
+            theta_candidates,
         )
+    ]
+
+
+def theta_grid_size():
+    return len(THETA_LAMBDA_GRID) + len(PROJECTION_D_THETA_GRID)
+
+
+def theta_grid_description():
+    return (
+        f"{len(THETA_LAMBDA_GRID)} reg_fixed theta_lambda values + "
+        f"{len(PROJECTION_D_THETA_GRID)} projection D_theta values"
     )
 
 
@@ -559,7 +608,7 @@ def total_grid_size():
         * len(T_GRID)
         * len(THETA_LR_GRID)
         * len(THETA_INNER_STEPS_GRID)
-        * len(THETA_LAMBDA_GRID)
+        * theta_grid_size()
     )
 
 
@@ -607,13 +656,16 @@ def run_grid_search(problem_name):
                 "T": candidate[3],
                 "theta_lr": candidate[4],
                 "theta_inner_steps": candidate[5],
-                "theta_lambda": candidate[6],
+                "theta_mode": candidate[6],
+                "theta_lambda": candidate[7],
+                "D_theta": candidate[8],
             }
         )
         not in completed
     ]
 
     print(f"Total grid size: {total_grid_size()}")
+    print(f"Theta grid: {theta_grid_description()}")
     print(f"Candidates to run: {len(candidates)}")
     if args.resume:
         print(f"Resumed rows: {len(results)}")
