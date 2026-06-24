@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import itertools
 import math
+import multiprocessing
 import os
 import random
 import sys
@@ -166,6 +167,16 @@ def parse_args(description):
         type=int,
         default=1,
         help="Torch CPU threads per worker. Keep low when using multiple workers.",
+    )
+    parser.add_argument(
+        "--devices",
+        type=str,
+        default=None,
+        help=(
+            "Comma-separated list of devices to distribute workers across "
+            "(e.g. cuda:0,cuda:1,cuda:2). Workers are assigned round-robin. "
+            "Defaults to the global DEVICE (cuda if available, else cpu)."
+        ),
     )
     return parser.parse_args()
 
@@ -349,7 +360,12 @@ def load_existing_results(resume, output_csv):
     if not resume or not output_csv.exists():
         return [], set()
 
-    df = pd.read_csv(output_csv)
+    try:
+        df = pd.read_csv(output_csv)
+    except pd.errors.EmptyDataError:
+        # File exists but is empty (e.g. left by a cancelled run). Treat as no prior results.
+        return [], set()
+
     if "status" in df.columns:
         df = df[df["status"] == "ok"].copy()
     rows = df.to_dict("records")
@@ -441,8 +457,8 @@ def base_row(params, problem_name, device, status="ok", error=""):
     return row
 
 
-def failed_worker_row(params, problem_name, exc):
-    return base_row(params, problem_name, DEVICE, status="failed", error=repr(exc))
+def failed_worker_row(params, problem_name, exc, device=None):
+    return base_row(params, problem_name, device or DEVICE, status="failed", error=repr(exc))
 
 
 def evaluate_policy(planner, evaluator, policy_mode, d_star, v_star):
@@ -616,6 +632,10 @@ def run_grid_search(problem_name):
     if problem_name not in PROBLEMS:
         raise ValueError(f"Unknown problem {problem_name!r}. Expected one of {sorted(PROBLEMS)}")
 
+    # Use 'spawn' to avoid CUDA context corruption when forking worker processes.
+    # (CUDA and fork do not mix; 'spawn' starts each worker fresh.)
+    multiprocessing.set_start_method("spawn", force=True)
+
     problem = PROBLEMS[problem_name]
     args = parse_args(problem["description"])
     workers = max(1, int(args.workers))
@@ -623,22 +643,24 @@ def run_grid_search(problem_name):
     configure_worker_threads(torch_threads)
     set_seed(SEED)
 
+    # Build the list of devices to distribute workers across.
+    if args.devices:
+        device_list = [d.strip() for d in args.devices.split(",") if d.strip()]
+    else:
+        device_list = [str(DEVICE)]
+
     dataset_path = problem["dataset_path"]
     output_csv = problem["output_csv"]
     best_csv = problem["best_csv"]
     if not dataset_path.exists():
         raise FileNotFoundError(f"Dataset not found: {dataset_path}")
 
-    print(f"Using device: {DEVICE}")
+    print(f"Devices: {device_list}")
     print(f"Problem: {problem_name}")
     print(f"Dataset: {dataset_path}")
     print(f"Results: {output_csv}")
     print(f"Workers: {workers}")
     print(f"Torch threads per worker: {torch_threads}")
-
-    mdp, planner = build_mdp(problem_name, DEVICE)
-    d_star = planner.state_mu_star.detach().cpu()
-    v_star = planner.v_star.detach().cpu()
 
     candidates_all = all_candidates()
     if args.max_runs is not None:
@@ -676,6 +698,11 @@ def run_grid_search(problem_name):
     desc = f"FinalLinearSolver {problem_name} 10-grid tabular search"
 
     if workers == 1:
+        # Build MDP in the main process only for the sequential path.
+        mdp, planner = build_mdp(problem_name, DEVICE)
+        d_star = planner.state_mu_star.detach().cpu()
+        v_star = planner.v_star.detach().cpu()
+
         outer = tqdm(candidates, desc=desc, unit="run", disable=not progress)
         for run_idx, params in enumerate(outer, start=len(results) + 1):
             row = run_candidate(
@@ -702,8 +729,14 @@ def run_grid_search(problem_name):
                 )
     else:
         payloads = [
-            (params, problem_name, str(dataset_path), str(DEVICE), torch_threads)
-            for params in candidates
+            (
+                params,
+                problem_name,
+                str(dataset_path),
+                device_list[i % len(device_list)],
+                torch_threads,
+            )
+            for i, params in enumerate(candidates)
         ]
         next_run_idx = len(results) + 1
         with ProcessPoolExecutor(max_workers=workers) as executor:
@@ -722,7 +755,7 @@ def run_grid_search(problem_name):
                 try:
                     row = future.result()
                 except Exception as exc:
-                    row = failed_worker_row(future_to_params[future], problem_name, exc)
+                    row = failed_worker_row(future_to_params[future], problem_name, exc, device=None)
                 row["run_idx"] = int(next_run_idx)
                 next_run_idx += 1
                 results.append(row)
