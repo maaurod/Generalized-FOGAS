@@ -137,13 +137,13 @@ SBEED_BATCH_SIZE = None
 # Fixed generalized FOGAS hyperparameters from the 10grid_tabular_new
 # hyperparameter search best row.
 # ---------------------------------------------------------------------
-GEN_ALPHA = 0.0005
+GEN_ALPHA = 0.001
 GEN_ETA = 3e-05
-GEN_RHO = 0.1
+GEN_RHO = 1.0
 GEN_T = 10_000
 GEN_THETA_LR = 0.01
 GEN_THETA_INNER_STEPS = 10
-GEN_THETA_LAMBDA = 1e-9
+GEN_THETA_LAMBDA = 1e-8
 GEN_THETA_MODE = "reg_fixed"
 GEN_THETA_OPTIMIZER = "adam"
 GEN_THETA_START_MODE = "warm"
@@ -187,7 +187,7 @@ ALGORITHM_ALIASES = {
 
 OUTPUT_FILES = {
     "sbeed": "sbeed_dataset_grid.csv",
-    "generalized_fogas": "generalized_fogas_dataset_grid_best_hparams.csv",
+    "generalized_fogas": "generalized_fogas_dataset_grid_10grid_tabular_new_best_hparams.csv",
 }
 
 BASE_COLUMNS = [
