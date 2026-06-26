@@ -267,7 +267,7 @@ class ContinuousRBFStateActionFeatures(torch.nn.Module):
 
 
 class ContinuousLinearRBFUParam(torch.nn.Module):
-    is_linear_fast_path = False
+    is_linear_fast_path = True
 
     def __init__(self, features, dtype=torch.float64):
         super().__init__()
@@ -282,7 +282,7 @@ class ContinuousLinearRBFUParam(torch.nn.Module):
 
 
 class ContinuousLinearRBFQParam(torch.nn.Module):
-    is_linear_fast_path = False
+    is_linear_fast_path = True
 
     def __init__(self, features, dtype=torch.float64):
         super().__init__()
@@ -297,7 +297,7 @@ class ContinuousLinearRBFQParam(torch.nn.Module):
 
 
 class ContinuousSoftmaxLinearRBFPolicyParam(torch.nn.Module):
-    is_linear_fast_path = False
+    is_linear_fast_path = True
 
     def __init__(self, features, dtype=torch.float64):
         super().__init__()

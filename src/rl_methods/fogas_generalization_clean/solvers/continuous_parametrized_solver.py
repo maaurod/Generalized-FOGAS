@@ -621,16 +621,51 @@ class ContinuousFinalParametrizedSolver:
             return torch.empty(0, 0, dtype=torch.float64, device=self.device)
         return torch.cat(chunks, dim=0)
 
+    def _u_sample_feature_batches(self, batch):
+        params = self._trainable_params(self.u_param)
+        beta_param = getattr(self.u_param, "beta", None)
+        features = getattr(self.u_param, "features", None)
+        if (
+            len(params) != 1
+            or beta_param is not params[0]
+            or features is None
+            or not callable(features)
+            or params[0].numel() != self.d
+        ):
+            return None
+
+        dtype = params[0].dtype
+        observations = batch["Xs"].to(dtype=dtype)
+        actions = self._action_tensor(batch["As"], dtype=dtype)
+        chunk_size = self._effective_chunk_size(self.u_jacobian_batch_size, batch["n"])
+
+        def feature_batches():
+            with torch.no_grad():
+                for start, end in self._batched_ranges(batch["n"], chunk_size):
+                    matrix = features(observations[start:end], actions[start:end])
+                    matrix = matrix.reshape(end - start, -1)
+                    if matrix.shape[1] != self.d:
+                        raise ValueError(
+                            "u_param.features returned an incompatible feature dimension: "
+                            f"expected {self.d}, got {matrix.shape[1]}"
+                        )
+                    yield matrix
+
+        return feature_batches()
+
     def _compute_beta_update_direction(self, td_error, batch):
         param_count = self.d
         beta_grad = None
         h_acc = None
         diag_acc = None
         td_error = td_error.detach()
+        u_gradient_batches = self._u_sample_feature_batches(batch)
+        if u_gradient_batches is None:
+            u_gradient_batches = self._u_sample_jacobian_batches(batch)
 
         if self.beta_update == "fogas_full":
             start = 0
-            for jacobian in self._u_sample_jacobian_batches(batch):
+            for jacobian in u_gradient_batches:
                 jacobian = jacobian.detach()
                 end = start + jacobian.shape[0]
                 td = td_error[start:end].to(dtype=jacobian.dtype)
@@ -657,7 +692,7 @@ class ContinuousFinalParametrizedSolver:
             }
         else:
             start = 0
-            for jacobian in self._u_sample_jacobian_batches(batch):
+            for jacobian in u_gradient_batches:
                 jacobian = jacobian.detach()
                 end = start + jacobian.shape[0]
                 td = td_error[start:end].to(dtype=jacobian.dtype)
