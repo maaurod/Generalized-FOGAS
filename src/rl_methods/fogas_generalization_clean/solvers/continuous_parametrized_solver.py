@@ -52,6 +52,9 @@ class ContinuousFinalParametrizedSolver:
         theta_start_mode="warm",
         beta_update="fogas_diag",
         beta_reg=1e-3,
+        batch_size=4096,
+        u_jacobian_batch_size=None,
+        value_batch_size=None,
         dataset_verbose=False,
     ):
         self.obs_dim = int(obs_dim)
@@ -145,6 +148,15 @@ class ContinuousFinalParametrizedSolver:
         self.beta_reg = 1.0 if beta_reg is None else float(beta_reg)
         if self.beta_reg < 0.0:
             raise ValueError("beta_reg must be non-negative")
+        self.batch_size = self._canonical_positive_int(batch_size, "batch_size")
+        self.u_jacobian_batch_size = self._canonical_positive_int(
+            self.batch_size if u_jacobian_batch_size is None else u_jacobian_batch_size,
+            "u_jacobian_batch_size",
+        )
+        self.value_batch_size = self._canonical_positive_int(
+            self.batch_size if value_batch_size is None else value_batch_size,
+            "value_batch_size",
+        )
 
         self.R = float(max(torch.max(torch.abs(self.Rs)).detach().cpu().item(), self._EPS))
         self.T = 1000
@@ -362,6 +374,11 @@ class ContinuousFinalParametrizedSolver:
     def _enumerated_actions(self, n, dtype):
         return torch.arange(self.n_actions, dtype=dtype, device=self.device).repeat(n)
 
+    @staticmethod
+    def _batched_ranges(n, batch_size):
+        for start in range(0, int(n), int(batch_size)):
+            yield start, min(start + int(batch_size), int(n))
+
     def _q_sample(self):
         return self.q_param.q(
             self.Xs.to(dtype=self._param_dtype(self.q_param)),
@@ -378,27 +395,53 @@ class ContinuousFinalParametrizedSolver:
         dtype = self._param_dtype(self.q_param)
         obs = self._obs_tensor(observations, self.q_param).to(dtype=dtype)
         n = obs.shape[0]
-        repeated_obs = obs[:, None, :].expand(n, self.n_actions, self.obs_dim).reshape(-1, self.obs_dim)
-        action_ids = self._enumerated_actions(n, dtype=dtype)
-        q_values = self.q_param.q(repeated_obs, action_ids.reshape(-1, 1)).reshape(n, self.n_actions)
-        probs = self.policy_param.probs(obs.to(dtype=self._param_dtype(self.policy_param)))
-        if detach_policy:
-            probs = probs.detach()
-        return (probs.to(dtype=q_values.dtype) * q_values).sum(dim=1)
+        values = []
+        for start, end in self._batched_ranges(n, self.value_batch_size):
+            obs_batch = obs[start:end]
+            batch_n = obs_batch.shape[0]
+            repeated_obs = (
+                obs_batch[:, None, :]
+                .expand(batch_n, self.n_actions, self.obs_dim)
+                .reshape(-1, self.obs_dim)
+            )
+            action_ids = self._enumerated_actions(batch_n, dtype=dtype)
+            q_values = self.q_param.q(repeated_obs, action_ids.reshape(-1, 1)).reshape(
+                batch_n,
+                self.n_actions,
+            )
+            probs = self.policy_param.probs(
+                obs_batch.to(dtype=self._param_dtype(self.policy_param))
+            )
+            if detach_policy:
+                probs = probs.detach()
+            values.append((probs.to(dtype=q_values.dtype) * q_values).sum(dim=1))
+        return torch.cat(values, dim=0)
 
     def _expected_q_continuous(self, observations, detach_policy, sample_count=None):
         dtype = self._param_dtype(self.q_param)
         obs = self._obs_tensor(observations, self.q_param).to(dtype=dtype)
         sample_count = self.action_samples_per_obs if sample_count is None else int(sample_count)
-        repeated_obs = obs[:, None, :].expand(obs.shape[0], sample_count, self.obs_dim).reshape(-1, self.obs_dim)
-        policy_obs = repeated_obs.to(dtype=self._param_dtype(self.policy_param))
-        if detach_policy:
-            with torch.no_grad():
-                actions = self.policy_param.sample(policy_obs).detach()
-        else:
-            actions = self.policy_param.sample(policy_obs)
-        q_values = self.q_param.q(repeated_obs, actions.to(dtype=dtype)).reshape(obs.shape[0], sample_count)
-        return q_values.mean(dim=1)
+        values = []
+        for start, end in self._batched_ranges(obs.shape[0], self.value_batch_size):
+            obs_batch = obs[start:end]
+            batch_n = obs_batch.shape[0]
+            repeated_obs = (
+                obs_batch[:, None, :]
+                .expand(batch_n, sample_count, self.obs_dim)
+                .reshape(-1, self.obs_dim)
+            )
+            policy_obs = repeated_obs.to(dtype=self._param_dtype(self.policy_param))
+            if detach_policy:
+                with torch.no_grad():
+                    actions = self.policy_param.sample(policy_obs).detach()
+            else:
+                actions = self.policy_param.sample(policy_obs)
+            q_values = self.q_param.q(repeated_obs, actions.to(dtype=dtype)).reshape(
+                batch_n,
+                sample_count,
+            )
+            values.append(q_values.mean(dim=1))
+        return torch.cat(values, dim=0)
 
     def _expected_q(self, observations, detach_policy=True, sample_count=None):
         if self.action_type == "discrete":
@@ -495,18 +538,90 @@ class ContinuousFinalParametrizedSolver:
             rows.append(torch.cat(row))
         return torch.stack(rows, dim=0)
 
-    def _u_sample_jacobian(self):
+    def _u_sample_jacobian_batches(self):
         params = self._trainable_params(self.u_param)
-        outputs = self._u_sample_values()
-        return self._jacobian_outputs(outputs, params)
+        if not params:
+            return
+
+        dtype = self._param_dtype(self.u_param)
+        observations = self.Xs.to(dtype=dtype)
+        actions = self._action_tensor(self.As, dtype=dtype)
+        batch_size = min(self.u_jacobian_batch_size, self.n)
+
+        try:
+            from torch.func import functional_call, grad, vmap
+        except ImportError:
+            for start, end in self._batched_ranges(self.n, batch_size):
+                outputs = self.u_param.u(observations[start:end], actions[start:end])
+                yield self._jacobian_outputs(outputs, params)
+            return
+
+        named_params = {
+            name: param
+            for name, param in self.u_param.named_parameters()
+            if param.requires_grad
+        }
+        buffers = dict(self.u_param.named_buffers())
+        param_names = list(named_params)
+
+        def single_u(param_dict, buffer_dict, observation, action):
+            value = functional_call(
+                self.u_param,
+                (param_dict, buffer_dict),
+                (observation, action),
+            )
+            return value.reshape(())
+
+        per_sample_grad = vmap(
+            grad(single_u),
+            in_dims=(None, None, 0, 0),
+        )
+
+        for start, end in self._batched_ranges(self.n, batch_size):
+            grads = per_sample_grad(
+                named_params,
+                buffers,
+                observations[start:end],
+                actions[start:end],
+            )
+            yield torch.cat(
+                [grads[name].reshape(end - start, -1) for name in param_names],
+                dim=1,
+            )
+
+    def _u_sample_jacobian(self):
+        chunks = list(self._u_sample_jacobian_batches())
+        if not chunks:
+            return torch.empty(0, 0, dtype=torch.float64, device=self.device)
+        return torch.cat(chunks, dim=0)
 
     def _compute_beta_update_direction(self, td_error):
-        jacobian = self._u_sample_jacobian().detach()
-        td = td_error.detach().to(dtype=jacobian.dtype)
-        beta_grad = (jacobian.T @ td) / self.n
+        param_count = self.d
+        beta_grad = None
+        h_acc = None
+        diag_acc = None
+        td_error = td_error.detach()
 
         if self.beta_update == "fogas_full":
-            H = (jacobian.T @ jacobian) / self.n
+            start = 0
+            for jacobian in self._u_sample_jacobian_batches():
+                jacobian = jacobian.detach()
+                end = start + jacobian.shape[0]
+                td = td_error[start:end].to(dtype=jacobian.dtype)
+                if beta_grad is None:
+                    beta_grad = torch.zeros(param_count, dtype=jacobian.dtype, device=jacobian.device)
+                    h_acc = torch.zeros(
+                        param_count,
+                        param_count,
+                        dtype=jacobian.dtype,
+                        device=jacobian.device,
+                    )
+                beta_grad = beta_grad + jacobian.T @ td
+                h_acc = h_acc + jacobian.T @ jacobian
+                start = end
+
+            beta_grad = beta_grad / self.n
+            H = h_acc / self.n
             H = H + self.beta_reg * torch.eye(H.shape[0], dtype=H.dtype, device=H.device)
             direction = torch.linalg.solve(H, beta_grad.to(dtype=H.dtype))
             diagnostics = {
@@ -515,7 +630,20 @@ class ContinuousFinalParametrizedSolver:
                 "beta_diag_max": float(torch.diagonal(H).max().detach().cpu().item()),
             }
         else:
-            diag_h = (jacobian * jacobian).mean(dim=0) + self.beta_reg
+            start = 0
+            for jacobian in self._u_sample_jacobian_batches():
+                jacobian = jacobian.detach()
+                end = start + jacobian.shape[0]
+                td = td_error[start:end].to(dtype=jacobian.dtype)
+                if beta_grad is None:
+                    beta_grad = torch.zeros(param_count, dtype=jacobian.dtype, device=jacobian.device)
+                    diag_acc = torch.zeros(param_count, dtype=jacobian.dtype, device=jacobian.device)
+                beta_grad = beta_grad + jacobian.T @ td
+                diag_acc = diag_acc + (jacobian * jacobian).sum(dim=0)
+                start = end
+
+            beta_grad = beta_grad / self.n
+            diag_h = diag_acc / self.n + self.beta_reg
             diag_h = diag_h.clamp_min(self._EPS)
             direction = beta_grad.to(dtype=diag_h.dtype) / diag_h
             diagnostics = {

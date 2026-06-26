@@ -80,6 +80,7 @@ HIDDEN_SIZES = (32, 32)
 BETA_REG = None
 POLICY_GRADIENT = "exact"
 POLICY_OPTIMIZER = "adam"
+BATCH_SIZE = 40_000
 
 ALPHA_GRID = [3e-5, 1e-4, 3e-4]
 ETA_GRID = [1e-8, 3e-8, 1e-7, 3e-7, 1e-6]
@@ -112,6 +113,9 @@ def parse_args():
     parser.add_argument("--dataset-path", type=Path, default=DATASET_PATH)
     parser.add_argument("--eval-trajectories", type=int, default=EVAL_TRAJECTORIES)
     parser.add_argument("--eval-max-steps", type=int, default=EVAL_MAX_STEPS)
+    parser.add_argument("--batch-size", type=int, default=BATCH_SIZE)
+    parser.add_argument("--u-jacobian-batch-size", type=int, default=None)
+    parser.add_argument("--value-batch-size", type=int, default=None)
     return parser.parse_args()
 
 
@@ -322,7 +326,15 @@ def base_row(params, device, status="ok", error=""):
     return row
 
 
-def make_solver(dataset_path, device, theta_lr, theta_lambda):
+def make_solver(
+    dataset_path,
+    device,
+    theta_lr,
+    theta_lambda,
+    batch_size,
+    u_jacobian_batch_size,
+    value_batch_size,
+):
     set_seed(NN_SEED)
     u_param = ContinuousNeuralUParam(
         ContinuousStateActionMLPModule(
@@ -369,6 +381,9 @@ def make_solver(dataset_path, device, theta_lr, theta_lambda):
         theta_start_mode="warm",
         beta_update="fogas_diag",
         beta_reg=BETA_REG,
+        batch_size=batch_size,
+        u_jacobian_batch_size=u_jacobian_batch_size,
+        value_batch_size=value_batch_size,
         dataset_verbose=False,
     )
 
@@ -449,7 +464,16 @@ def checkpoint_row(base, iteration, eval_metrics, diagnostics):
     return row
 
 
-def run_candidate(params, dataset_path, device, eval_trajectories, eval_max_steps):
+def run_candidate(
+    params,
+    dataset_path,
+    device,
+    eval_trajectories,
+    eval_max_steps,
+    batch_size,
+    u_jacobian_batch_size,
+    value_batch_size,
+):
     alpha, eta, rho, theta_lr, theta_lambda = params
     start = time.perf_counter()
     row = base_row(params, device)
@@ -461,6 +485,9 @@ def run_candidate(params, dataset_path, device, eval_trajectories, eval_max_step
             device=device,
             theta_lr=theta_lr,
             theta_lambda=theta_lambda,
+            batch_size=batch_size,
+            u_jacobian_batch_size=u_jacobian_batch_size,
+            value_batch_size=value_batch_size,
         )
         checkpoint_set = set(EVAL_CHECKPOINTS)
 
@@ -516,7 +543,17 @@ def run_candidate(params, dataset_path, device, eval_trajectories, eval_max_step
     return row, checkpoint_rows
 
 
-def run_candidate_worker(params, dataset_path, device_name, torch_threads, eval_trajectories, eval_max_steps):
+def run_candidate_worker(
+    params,
+    dataset_path,
+    device_name,
+    torch_threads,
+    eval_trajectories,
+    eval_max_steps,
+    batch_size,
+    u_jacobian_batch_size,
+    value_batch_size,
+):
     start = time.perf_counter()
     device = torch.device(device_name)
     try:
@@ -529,6 +566,9 @@ def run_candidate_worker(params, dataset_path, device_name, torch_threads, eval_
             device=device,
             eval_trajectories=eval_trajectories,
             eval_max_steps=eval_max_steps,
+            batch_size=batch_size,
+            u_jacobian_batch_size=u_jacobian_batch_size,
+            value_batch_size=value_batch_size,
         )
     except Exception as exc:
         row = base_row(params, device, status="failed", error=repr(exc))
@@ -554,6 +594,18 @@ def run_grid_search():
     print(f"Fixed T: {T_FIXED}")
     print(f"Fixed hidden sizes: {HIDDEN_SIZES}")
     print(f"Fixed NN seed: {NN_SEED}")
+    batch_size = max(1, int(args.batch_size))
+    u_jacobian_batch_size = (
+        None
+        if args.u_jacobian_batch_size is None
+        else max(1, int(args.u_jacobian_batch_size))
+    )
+    value_batch_size = (
+        None if args.value_batch_size is None else max(1, int(args.value_batch_size))
+    )
+    print(f"Batch size: {batch_size}")
+    print(f"U Jacobian batch size: {batch_size if u_jacobian_batch_size is None else u_jacobian_batch_size}")
+    print(f"Value batch size: {batch_size if value_batch_size is None else value_batch_size}")
 
     candidates_all = all_candidates()
     if args.max_runs is not None:
@@ -604,6 +656,9 @@ def run_grid_search():
                 device=device,
                 eval_trajectories=max(1, int(args.eval_trajectories)),
                 eval_max_steps=max(1, int(args.eval_max_steps)),
+                batch_size=batch_size,
+                u_jacobian_batch_size=u_jacobian_batch_size,
+                value_batch_size=value_batch_size,
             )
             row["run_idx"] = int(run_idx)
             for cp_row in cp_rows:
@@ -649,6 +704,9 @@ def run_grid_search():
                     max(1, int(args.torch_threads)),
                     max(1, int(args.eval_trajectories)),
                     max(1, int(args.eval_max_steps)),
+                    batch_size,
+                    u_jacobian_batch_size,
+                    value_batch_size,
                 )
                 future_to_candidate[future] = (submit_idx, params, device_name)
                 next_submit_idx += 1
