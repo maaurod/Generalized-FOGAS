@@ -201,6 +201,137 @@ class ContinuousGaussianPolicyModule(nn.Module):
         return next(self.parameters()).device
 
 
+class ContinuousRBFStateActionFeatures(nn.Module):
+    """Action-coupled RBF features for continuous observations."""
+
+    def __init__(
+        self,
+        centers,
+        sigma_squared,
+        n_actions,
+        dtype=torch.float64,
+    ):
+        super().__init__()
+        centers = torch.as_tensor(centers, dtype=dtype)
+        sigma_squared = torch.as_tensor(sigma_squared, dtype=dtype).reshape(1, 1, -1)
+        if centers.ndim != 2:
+            raise ValueError("centers must have shape (n_centers, obs_dim)")
+        if sigma_squared.shape[-1] != centers.shape[1]:
+            raise ValueError("sigma_squared dimension must match center dimension")
+        if torch.any(sigma_squared <= 0):
+            raise ValueError("sigma_squared values must be positive")
+        self.n_actions = int(n_actions)
+        self.n_centers = int(centers.shape[0])
+        self.obs_dim = int(centers.shape[1])
+        self.d = self.n_actions * self.n_centers
+        self.register_buffer("centers", centers)
+        self.register_buffer("sigma_squared", sigma_squared)
+
+    def state_features(self, observations):
+        observations = torch.as_tensor(
+            observations,
+            dtype=self.centers.dtype,
+            device=self.centers.device,
+        )
+        if observations.ndim == 1:
+            observations = observations.reshape(1, -1)
+        if observations.shape[-1] != self.obs_dim:
+            raise ValueError(f"observations last dimension must be {self.obs_dim}")
+        diff_sq = (observations[:, None, :] - self.centers[None, :, :]).square()
+        return torch.exp(-0.5 * torch.sum(diff_sq / self.sigma_squared, dim=-1))
+
+    def forward(self, observations, actions):
+        state_features = self.state_features(observations)
+        actions = torch.as_tensor(actions, device=state_features.device).reshape(-1).long()
+        if state_features.shape[0] == 1 and actions.numel() > 1:
+            state_features = state_features.expand(actions.numel(), self.n_centers)
+        elif actions.numel() == 1 and state_features.shape[0] > 1:
+            actions = actions.expand(state_features.shape[0])
+        elif state_features.shape[0] != actions.numel():
+            raise ValueError("observations and actions must have compatible batch sizes")
+        action_features = torch.nn.functional.one_hot(
+            actions,
+            num_classes=self.n_actions,
+        ).to(dtype=state_features.dtype, device=state_features.device)
+        return (action_features[:, :, None] * state_features[:, None, :]).reshape(
+            state_features.shape[0],
+            self.d,
+        )
+
+
+class ContinuousLinearRBFUParam(nn.Module):
+    """Linear u_beta over continuous action-coupled RBF features."""
+
+    is_linear_fast_path = True
+
+    def __init__(self, features, dtype=torch.float64):
+        super().__init__()
+        self.features = features
+        self.beta = nn.Parameter(torch.zeros(features.d, dtype=dtype))
+
+    def u(self, observations, actions):
+        return self.features(observations, actions) @ self.beta
+
+    def forward(self, observations, actions):
+        return self.u(observations, actions)
+
+
+class ContinuousLinearRBFQParam(nn.Module):
+    """Linear Q_theta over continuous action-coupled RBF features."""
+
+    is_linear_fast_path = True
+
+    def __init__(self, features, dtype=torch.float64):
+        super().__init__()
+        self.features = features
+        self.theta = nn.Parameter(torch.zeros(features.d, dtype=dtype))
+
+    def q(self, observations, actions):
+        return self.features(observations, actions) @ self.theta
+
+    def forward(self, observations, actions):
+        return self.q(observations, actions)
+
+
+class ContinuousSoftmaxLinearRBFPolicyParam(nn.Module):
+    """Softmax policy with linear logits over continuous RBF state features."""
+
+    is_linear_fast_path = True
+
+    def __init__(self, features, dtype=torch.float64):
+        super().__init__()
+        self.features = features
+        self.psi = nn.Parameter(torch.zeros(features.d, dtype=dtype))
+
+    def logits(self, observations):
+        state_features = self.features.state_features(observations)
+        weights = self.psi.reshape(self.features.n_actions, self.features.n_centers)
+        return state_features @ weights.T
+
+    def probs(self, observations):
+        return torch.softmax(self.logits(observations), dim=-1)
+
+    def log_probs(self, observations):
+        return torch.log_softmax(self.logits(observations), dim=-1)
+
+    def log_prob_actions(self, observations, actions):
+        actions = torch.as_tensor(
+            actions,
+            dtype=torch.long,
+            device=self.psi.device,
+        ).reshape(-1)
+        return self.log_probs(observations).gather(-1, actions[:, None]).squeeze(-1)
+
+    def sample(self, observations, deterministic=False):
+        probs = self.probs(observations)
+        if deterministic:
+            return torch.argmax(probs, dim=-1)
+        return torch.multinomial(probs, num_samples=1).squeeze(-1)
+
+    def forward(self, observations):
+        return self.probs(observations)
+
+
 class ContinuousNeuralUParam(nn.Module):
     """Neural FOGAS u wrapper for continuous observations."""
 
@@ -291,6 +422,10 @@ __all__ = [
     "ContinuousStateActionMLPModule",
     "ContinuousStateMLPPolicyModule",
     "ContinuousGaussianPolicyModule",
+    "ContinuousRBFStateActionFeatures",
+    "ContinuousLinearRBFUParam",
+    "ContinuousLinearRBFQParam",
+    "ContinuousSoftmaxLinearRBFPolicyParam",
     "ContinuousNeuralUParam",
     "ContinuousNeuralQParam",
     "ContinuousDiscretePolicyParam",
