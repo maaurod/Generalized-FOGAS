@@ -230,6 +230,36 @@ def parse_args():
     return parser.parse_args()
 
 
+def run_candidate_worker(
+    params,
+    dataset_path,
+    device_name,
+    torch_threads,
+    eval_trajectories,
+    eval_max_steps,
+    batch_size=None,
+):
+    apply_refined_configuration()
+    start = base.time.perf_counter()
+    device = base.torch.device(device_name)
+    try:
+        base.configure_torch_threads(torch_threads)
+        device = base.configure_device(device_name)
+        base.set_seed(base.SEED)
+        return base.run_candidate(
+            params=params,
+            dataset_path=Path(dataset_path),
+            device=device,
+            eval_trajectories=eval_trajectories,
+            eval_max_steps=eval_max_steps,
+            batch_size=batch_size,
+        )
+    except Exception as exc:
+        row = base.base_row(params, device, status="failed", error=repr(exc), batch_size=batch_size)
+        row["elapsed_seconds"] = float(base.time.perf_counter() - start)
+        return row, []
+
+
 def apply_refined_configuration():
     base.OUTPUT_CSV = OUTPUT_CSV
     base.BEST_CSV = BEST_CSV
@@ -251,6 +281,7 @@ def apply_refined_configuration():
     base.save_results = save_results
     base.checkpoint_row = checkpoint_row
     base.parse_args = parse_args
+    base.run_candidate_worker = run_candidate_worker
 
 
 def main():
