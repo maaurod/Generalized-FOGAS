@@ -26,17 +26,17 @@ import torch
 from tqdm import tqdm
 
 
-def find_root(current_path, marker="setup.py"):
+def find_root(current_path):
     current_path = Path(current_path).resolve()
     for parent in [current_path] + list(current_path.parents):
-        if (parent / marker).exists():
+        if (parent / "src" / "rl_methods").exists() and (parent / "data").exists():
             return parent
     return current_path
 
 
 PROJECT_ROOT = find_root(Path(__file__).resolve())
 DATASETS_DIR = PROJECT_ROOT / "data" / "datasets" / "generalization"
-RESULTS_DIR = PROJECT_ROOT / "data" / "results" / "generalization" / "mountainCar"
+RESULTS_DIR = PROJECT_ROOT / "data" / "results" / "generalization" / "mountain_car"
 
 if str(PROJECT_ROOT / "src") not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT / "src"))

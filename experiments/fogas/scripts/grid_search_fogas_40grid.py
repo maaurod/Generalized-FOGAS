@@ -28,10 +28,10 @@ import matplotlib.colors as mcolors
 # ─────────────────────────────────────────────────────────────
 # Project root discovery
 # ─────────────────────────────────────────────────────────────
-def find_root(current_path, marker="setup.py"):
+def find_root(current_path):
     current_path = Path(current_path).resolve()
     for parent in [current_path] + list(current_path.parents):
-        if (parent / marker).exists():
+        if (parent / "src" / "rl_methods").exists() and (parent / "data").exists():
             return parent
     return current_path
 

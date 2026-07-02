@@ -20,10 +20,10 @@ from pathlib import Path
 from typing import Any, Dict, Iterable, Optional
 
 
-def find_root(current_path: Path, marker: str = "setup.py") -> Path:
+def find_root(current_path: Path) -> Path:
     current_path = current_path.resolve()
     for parent in [current_path] + list(current_path.parents):
-        if (parent / marker).exists():
+        if (parent / "src" / "rl_methods").exists() and (parent / "data").exists():
             return parent
     return current_path
 
