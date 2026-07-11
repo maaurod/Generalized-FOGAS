@@ -76,6 +76,8 @@ UPDATE_ORDER = [
     "fogas_full",
     "fogas_diag",
     "projected_gradient",
+    "metric_no_stabilization",
+    "euclidean_stabilized",
     "fenchel_br",
     "fenchel_mirror",
 ]
@@ -83,6 +85,8 @@ UPDATE_LABELS = {
     "fogas_full": "FOGAS full",
     "fogas_diag": "FOGAS diag",
     "projected_gradient": "Projected grad",
+    "metric_no_stabilization": "Metric no stab.",
+    "euclidean_stabilized": "Euclidean stabilized",
     "fenchel_br": "Fenchel BR",
     "fenchel_mirror": "Fenchel mirror",
 }

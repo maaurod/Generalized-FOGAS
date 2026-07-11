@@ -26,6 +26,8 @@ class FinalLinearSolver:
         "fogas_full",
         "fogas_diag",
         "projected_gradient",
+        "metric_no_stabilization",
+        "euclidean_stabilized",
         "fenchel_br",
         "fenchel_mirror",
     }
@@ -34,6 +36,10 @@ class FinalLinearSolver:
         "diagonal": "fogas_diag",
         "diag": "fogas_diag",
         "gradient": "projected_gradient",
+        "metric": "metric_no_stabilization",
+        "local_metric": "metric_no_stabilization",
+        "euclidean_stable": "euclidean_stabilized",
+        "euclidean_reg": "euclidean_stabilized",
         "best_response": "fenchel_br",
     }
     _POLICY_OPTIMIZERS = {"sgd", "adam", "npg"}
@@ -633,6 +639,28 @@ class FinalLinearSolver:
                 "beta_update": self.beta_update,
                 "beta_diag_min": float(diag_h.min().detach().cpu().item()),
                 "beta_diag_max": float(diag_h.max().detach().cpu().item()),
+                "beta_projection_radius": beta_projection_radius_diagnostic,
+            }
+            return beta_next, direction, diagnostics
+
+        if self.beta_update == "metric_no_stabilization":
+            direction = self.H_inv @ beta_grad
+            beta_next = beta_t + eta * direction
+            diagnostics = {
+                "beta_update": self.beta_update,
+                "beta_diag_min": None,
+                "beta_diag_max": None,
+                "beta_projection_radius": beta_projection_radius_diagnostic,
+            }
+            return beta_next, direction, diagnostics
+
+        if self.beta_update == "euclidean_stabilized":
+            direction = beta_grad
+            beta_next = (1.0 / (1.0 + rho * eta)) * (beta_t + eta * direction)
+            diagnostics = {
+                "beta_update": self.beta_update,
+                "beta_diag_min": None,
+                "beta_diag_max": None,
                 "beta_projection_radius": beta_projection_radius_diagnostic,
             }
             return beta_next, direction, diagnostics

@@ -89,6 +89,32 @@ FOGAS_ETA_GRID = [
     3e-3,
 ]
 PROJECTED_ETA_GRID = [1e-6, 3e-6, 1e-5, 3e-5, 1e-4, 3e-4, 1e-3]
+METRIC_ETA_GRID = [
+    1e-7,
+    3e-7,
+    1e-6,
+    3e-6,
+    1e-5,
+    3e-5,
+    1e-4,
+    3e-4,
+    1e-3,
+    3e-3,
+    1e-2,
+]
+EUCLIDEAN_STABILIZED_ETA_GRID = [
+    1e-7,
+    3e-7,
+    1e-6,
+    3e-6,
+    1e-5,
+    3e-5,
+    1e-4,
+    3e-4,
+    1e-3,
+    3e-3,
+    1e-2,
+]
 MIRROR_ETA_GRID = [0.01, 0.03, 0.05, 0.1, 0.2, 0.5, 0.75, 1.0]
 PROJECTION_RADIUS_GRID = [None, 0.1, 0.25, 0.5, 1.0, 2.0, 5.0, 10.0]
 SENSITIVITY_ETA_GRID = [1e-6, 3e-6, 1e-5, 3e-5, 1e-4, 3e-4, 1e-3, 3e-3, 1e-2]
@@ -448,6 +474,32 @@ def all_candidates(problem_names):
                     eta=eta,
                     rho=baseline_rho,
                     beta_projection_radius=radius,
+                )
+            )
+
+        for T, eta in itertools.product(T_GRID, METRIC_ETA_GRID):
+            candidates.append(
+                make_candidate(
+                    problem_name=problem_name,
+                    beta_update="metric_no_stabilization",
+                    T=T,
+                    eta=eta,
+                    rho=0.0,
+                )
+            )
+
+        for T, eta, rho in itertools.product(
+            T_GRID,
+            EUCLIDEAN_STABILIZED_ETA_GRID,
+            problem["rho_grid"],
+        ):
+            candidates.append(
+                make_candidate(
+                    problem_name=problem_name,
+                    beta_update="euclidean_stabilized",
+                    T=T,
+                    eta=eta,
+                    rho=rho,
                 )
             )
 
