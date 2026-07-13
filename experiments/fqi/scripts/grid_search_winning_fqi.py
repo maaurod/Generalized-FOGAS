@@ -1,3 +1,10 @@
+"""FQI experiment using the selected RBF feature configuration.
+
+This script reconstructs the RBF centers/sigma from the winning configuration,
+then repeats the dataset-coverage and FQI evaluation sweep from the tabular
+script. It also includes a uniform dataset check for comparison.
+"""
+
 import os
 import numpy as np
 import random
@@ -8,7 +15,8 @@ from pathlib import Path
 from tqdm import tqdm
 from sklearn.cluster import KMeans
 
-# Add project root to sys.path
+# Shared path setup so the script can be launched from the repo root, the
+# experiments folder, or a scheduler working directory.
 def find_root(current_path):
     current_path = Path(current_path).resolve()
     for parent in [current_path] + list(current_path.parents):
@@ -92,7 +100,9 @@ for x in range(N):
         if next_state_val in walls: next_state_val = x
         P[x * A + a, next_state_val] = 1.0
 
-# --- Reconstruct WINNING features ---
+# --- Reconstruct winning RBF features ---
+# The centers are recomputed from the same KMeans seed and cluster count used
+# in the selected run, so the grid search can be reproduced without a pickle.
 winning_n = 71
 winning_sigma_mult = 0.1
 
@@ -172,20 +182,23 @@ with tqdm(total=total_iters, desc="Grid Searching") as pbar:
                         fname = f"win_{reset_label}_x{extra_steps}_{prop_label}_e{eps}_n{n_steps}.csv"
                         save_path = os.path.join(temp_dir, fname)
 
-                        # A. Collect
+                        # A. Collect a terminal-aware mixed-policy offline
+                        # dataset for the current behavior setting.
                         collector.collect_mixed_dataset_terminal_aware(
                             policies=[epsilon_policy, "random"], proportions=props,
                             n_steps=n_steps, episode_based=True, save_path=save_path,
                             verbose=False, extra_steps=extra_steps
                         )
                         
-                        # B. Coverage
+                        # B. Coverage of the RBF features under the optimal
+                        # policy distribution.
                         try:
                             analyzer = DatasetAnalyzer(save_path)
                             coverage_ratio = analyzer.feature_coverage_ratio(mdp=mdp, beta=beta_val, use_optimal_policy=True)
                         except: coverage_ratio = np.nan
 
-                        # C. Train FQI
+                        # C. Train FQI and evaluate greedy control plus exact
+                        # value/Q gaps against the oracle RBF MDP.
                         try:
                             solver_fqi = FQISolver(mdp=mdp, csv_path=save_path, device=device, seed=seed, ridge=FQI_PARAMS['ridge'])
                             solver_fqi.run(K=FQI_PARAMS['K'], tau=FQI_PARAMS['tau'], verbose=False)
@@ -230,7 +243,8 @@ with tqdm(total=len(uniform_samples_values), desc="Uniform Searching") as pbar:
         fname = f"win_uniform_s{samples_per_pair}.csv"
         save_path = os.path.join(temp_dir, fname)
 
-        # A. Collect
+        # A. Collect uniform state-action data to separate feature quality from
+        # behavior-policy coverage.
         collector_uniform.collect_uniform_dataset(
             samples_per_pair=samples_per_pair, 
             save_path=save_path, 

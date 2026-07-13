@@ -1,3 +1,10 @@
+"""Fitted Q Iteration baseline.
+
+The solver fits a linear Q-function over user-provided state-action features.
+It can run from offline transition data, from a known model, or from an
+oracle-style optimal target used to study representation error.
+"""
+
 import torch
 import random
 import numpy as np
@@ -268,20 +275,19 @@ class FQISolver:
         phi = self.phi
         device = self.device
 
-        # 1. Phi for current state-actions (x_i, a_i)
+        # Regression inputs: each offline row contributes one feature vector
+        # for the observed current state-action pair.
         Phi_list = [
             phi(int(x.item()), int(a.item())).to(dtype=torch.float64, device=device)
             for x, a in zip(self.Xs, self.As)
         ]
         self.Phi = torch.vstack(Phi_list)  # (n, d)
 
-        # 2. Phi for next states (x'_i, for all actions)
-        # We need this to compute max_a' Q(x'_i, a') = max_a' (theta^T phi(x'_i, a'))
-        # Storing as (n, A, d) tensor.
+        # Bellman targets need max_a' Q(x'_i, a'), so cache all action features
+        # for every next state once instead of rebuilding them each iteration.
         Phi_next_list = []
         for x_next in self.X_nexts:
             x_next_val = int(x_next.item())
-            # For each action, compute feature
             feats = [
                 phi(x_next_val, a).to(dtype=torch.float64, device=device)
                 for a in range(A)
@@ -331,6 +337,8 @@ class FQISolver:
         params_history = []
         iterator = trange(K, desc="FQI", disable=not verbose)
 
+        # The three modes share the same least-squares projection step but
+        # differ in how they construct Bellman targets.
         if self.use_optimal_target_backup:
             self._run_optimal_target_based(theta, params_history, iterator, tau, verbose)
         elif self.use_model_based_backup:
@@ -395,6 +403,8 @@ class FQISolver:
     def _run_dataset_based(self, theta, params_history, iterator, tau, verbose=False):
         """Bellman backup using only dataset transitions (standard FQI)."""
         for k in iterator:
+            # Standard FQI target for each sampled transition:
+            # r_i + gamma max_a' Q_theta(x'_i, a').
             Q_next_all = torch.einsum('nad,d->na', self.Phi_next_all, theta)
             max_Q_next, _ = torch.max(Q_next_all, dim=1)
             targets = self.Rs + self.gamma * max_Q_next

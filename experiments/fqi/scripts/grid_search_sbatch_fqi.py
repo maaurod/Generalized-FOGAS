@@ -1,3 +1,10 @@
+"""Dataset-grid FQI experiment on the 10x10 tabular gridworld.
+
+The script sweeps reset distributions, behavior-policy mixtures, epsilon
+values, dataset sizes, and terminal extra steps. For each collected dataset it
+measures feature coverage, trains FQI, and records convergence/value-gap metrics.
+"""
+
 import os
 import numpy as np
 import random
@@ -7,7 +14,8 @@ import sys
 from pathlib import Path
 from tqdm import tqdm
 
-# Add project root to sys.path
+# Shared path setup so the script can be launched from the repo root, the
+# experiments folder, or a scheduler working directory.
 def find_root(current_path):
     current_path = Path(current_path).resolve()
     for parent in [current_path] + list(current_path.parents):
@@ -164,7 +172,8 @@ print(f"   5. Q Optimal Gap (E_{{(x,a)~μ_π*}}[Q*(x,a) - Q^π(x,a)])\n")
 with tqdm(total=total_iters, desc="FQI Grid Searching") as pbar:
     for reset_label, reset_probs in reset_configs.items():
 
-        # One collector per reset config (avoids re-building LinearMDPEnv repeatedly)
+        # One collector per reset config avoids rebuilding the environment for
+        # every behavior mixture and dataset size.
         collector = EnvDataCollector(
             mdp=mdp,
             env_name="10grid_wall",
@@ -187,7 +196,8 @@ with tqdm(total=total_iters, desc="FQI Grid Searching") as pbar:
                         )
                         save_path = os.path.join(temp_dir, fname)
 
-                        # ── A. Collect Dataset (terminal-aware mixed) ──────────
+                        # A. Collect a terminal-aware mixed-policy offline
+                        # dataset for this reset/proportion/epsilon/size tuple.
                         try:
                             collector.collect_mixed_dataset_terminal_aware(
                                 policies=[epsilon_policy, "random"],
@@ -203,7 +213,8 @@ with tqdm(total=total_iters, desc="FQI Grid Searching") as pbar:
                             pbar.update(1)
                             continue
 
-                        # ── B. Feature Coverage ────────────────────────────────
+                        # B. Estimate whether the dataset covers the features
+                        # used by the optimal policy distribution.
                         try:
                             analyzer = DatasetAnalyzer(save_path)
                             coverage_ratio = analyzer.feature_coverage_ratio(
@@ -213,7 +224,8 @@ with tqdm(total=total_iters, desc="FQI Grid Searching") as pbar:
                         except Exception:
                             coverage_ratio = np.nan
 
-                        # ── C. Train FQI + Compute Metrics ────────────────────
+                        # C. Train FQI and evaluate both greedy control and
+                        # exact value/Q gaps against the known tabular MDP.
                         try:
                             solver_fqi = FQISolver(
                                 mdp=mdp,

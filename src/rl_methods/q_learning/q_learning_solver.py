@@ -1,3 +1,10 @@
+"""Tabular Q-learning baseline.
+
+This module is used when an experiment can map observations to a finite state
+id. The code keeps the baseline explicit: epsilon-greedy collection, one Q-table
+update per environment step, and a greedy policy read out at the end.
+"""
+
 from __future__ import annotations
 
 import random
@@ -11,6 +18,8 @@ import torch
 
 @dataclass
 class QLearningResult:
+    """Training result returned by `QLearningSolver.run`."""
+
     q_values: torch.Tensor
     greedy_actions: torch.Tensor
     rewards_per_episode: np.ndarray
@@ -118,6 +127,8 @@ class QLearningSolver:
         q = np.zeros((self.n_states, self.n_actions), dtype=np.float64)
         rewards_per_episode = np.zeros(episodes, dtype=np.float64)
 
+        # Linear epsilon decay is the default used by the older notebook code.
+        # A custom decay can be passed when an experiment needs a fixed schedule.
         epsilon = float(epsilon_start)
         if epsilon_decay_rate is None:
             epsilon_decay_rate = 2.0 / episodes if episodes > 0 else 0.0
@@ -130,6 +141,8 @@ class QLearningSolver:
             ep_reward = 0.0
 
             while (not terminated) and (ep_reward > reward_floor):
+                # Behavior policy: epsilon-greedy with respect to the current
+                # table. This is the only exploration mechanism in the solver.
                 if rng.random() < epsilon:
                     a = self._sample_action(env, rng)
                 else:
@@ -147,6 +160,7 @@ class QLearningSolver:
                     next_s = self._map_obs_to_state_id(next_obs)
                     target = reward + gamma * np.max(q[next_s])
 
+                # One-step tabular Q-learning update.
                 q[s, a] = q[s, a] + alpha * (target - q[s, a])
 
                 if next_s is not None:
