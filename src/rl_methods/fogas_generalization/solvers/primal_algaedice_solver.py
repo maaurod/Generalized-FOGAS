@@ -1,3 +1,11 @@
+"""Linear primal AlgaeDICE baseline used in the thesis comparisons.
+
+This module implements the quadratic primal objective described for the
+tabular/linear setting in the AlgaeDICE appendix.  It is colocated with the
+Generalized FOGAS solvers because it shares their finite feature utilities and
+experiment protocol, but it is a separate baseline algorithm.
+"""
+
 import random
 
 import numpy as np
@@ -9,13 +17,22 @@ from ..features import build_policy_feature_table, build_q_feature_table
 
 
 class PrimalAlgaeDICESolver:
-    """
-    Linear-feature primal AlgaeDICE solver for finite offline RL datasets.
+    """Linear-feature primal AlgaeDICE for finite offline RL datasets.
 
-    The critic is nu_theta(s, a) = <theta, q_features(s, a)> and the policy is
-    pi_psi(a | s) = softmax_a(<psi, policy_features(s, a)> / temperature).
-    With tabular one-hot Q features this is the quadratic primal AlgaeDICE
-    algorithm used in tabular Four Rooms style experiments.
+    The critic is ``nu_theta(s,a) = <theta, phi_Q(s,a)>`` and the policy is
+    ``pi_psi(a|s) = softmax_a(<psi, phi_pi(s,a)> / temperature)``.  For the
+    quadratic generator, eliminating the density-ratio variable gives an
+    objective formed by the initial value plus the squared sample Bellman
+    residual.  With tabular one-hot value features,
+    ``critic_update='closed_form'`` computes the regularized linear best
+    response used in the grid experiments.  ``'batch_adam'`` is retained as an
+    iterative comparison.
+
+    The actor takes Adam ascent steps through the same quadratic primal
+    objective.  This class does not implement the Generalized FOGAS
+    occupancy-parameter update; the optional ``u_function`` argument exists
+    only so shared experiment factories can construct all linear solvers with a
+    common call signature.
     """
 
     _CRITIC_UPDATES = {"closed_form", "batch_adam"}
@@ -397,6 +414,18 @@ class PrimalAlgaeDICESolver:
         tqdm_print=False,
         log_interval=None,
     ):
+        """Alternate critic best responses and actor ascent steps.
+
+        Parameters unrelated to primal AlgaeDICE are accepted and discarded so
+        this baseline can be used by the same experiment driver as
+        ``FinalLinearSolver``.  AlgaeDICE-specific settings may be overridden
+        for one run without changing the constructor configuration.
+
+        Returns:
+            A ``(n_states, n_actions)`` stochastic policy tensor.  Critic,
+            actor, and Bellman-residual statistics are available through
+            :meth:`get_diagnostics`.
+        """
         del eta, rho, policy_optimizer, policy_gradient
         del reinforce_samples, fisher_damping, cg_iters, cg_tol
         del state_weight_update, c_min
@@ -479,12 +508,17 @@ class PrimalAlgaeDICESolver:
         iterator = trange(T, desc="PrimalAlgaeDICESolver", disable=not use_tqdm)
 
         for t in iterator:
+            # 1. Best respond in the linear critic for the current policy.  The
+            # closed-form path solves the regularized normal equations on the
+            # whole dataset; batch_adam approximates the same minimization.
             pi_detached = self._policy_matrix(psi_param.detach())
             if self.critic_update == "closed_form":
                 theta_t = self._closed_form_critic_update(pi_detached)
             else:
                 theta_t = self._batch_adam_critic_update(pi_detached, theta_t)
 
+            # 2. Differentiate the quadratic primal objective through the
+            # softmax policy while treating the critic response as fixed.
             actor_optimizer.zero_grad(set_to_none=True)
             objective, actor_delta = self._actor_objective(psi_param, theta_t)
             actor_loss = -objective

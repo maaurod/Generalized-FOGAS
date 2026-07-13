@@ -1,9 +1,9 @@
-"""Generalized FOGAS exports."""
+"""Public API for the thesis Generalized FOGAS implementation."""
 
 from .solvers import (
+    FinalParametrizedSolver,
     ContinuousFinalParametrizedSolver,
     FinalLinearSolver,
-    FinalParametrizedSolver,
     PrimalAlgaeDICESolver,
 )
 from .continuous_features import (
@@ -55,9 +55,9 @@ except ModuleNotFoundError as exc:
     FOGASSolverPolicy = None
 
 __all__ = [
+    "FinalParametrizedSolver",
     "ContinuousFinalParametrizedSolver",
     "FinalLinearSolver",
-    "FinalParametrizedSolver",
     "PrimalAlgaeDICESolver",
     "GeneralizedFOGASParameters",
     "StandaloneFOGASParameters",

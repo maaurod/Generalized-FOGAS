@@ -1,14 +1,28 @@
+"""FOGAS-motivated default constants for finite Generalized FOGAS solvers.
+
+The parameter object keeps the theoretical formulas and the empirical
+overrides together.  This is useful in experiment logs: selected grid-search
+values can be used by a solver without losing the corresponding formula-based
+reference values.
+"""
+
 import math
 
 import numpy as np
 
 
 class GeneralizedFOGASParameters:
-    """
-    FOGAS parameter defaults for generalized solvers that do not receive an mdp.
+    """Compute default finite-solver constants from dataset metadata.
 
-    The caller provides the problem metadata and the reward/feature bound that
-    older solvers obtained from the mdp object.
+    Generalized solvers are constructed from an offline dataset and do not need
+    to receive a complete MDP.  The caller therefore provides the dataset size,
+    reward bound, finite-space sizes, feature dimension, and discount factor
+    that the original FOGAS solver obtained through its MDP object.
+
+    Any non-``None`` optimization argument overrides its formula-based value.
+    The override is recorded and displayed by :meth:`print_summary`, which
+    prevents theoretical defaults from being confused with empirically selected
+    thesis configurations.
     """
 
     def __init__(

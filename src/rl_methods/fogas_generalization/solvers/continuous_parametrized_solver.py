@@ -1,4 +1,11 @@
-"""Continuous-observation generalized FOGAS solver."""
+"""Reference Generalized FOGAS solver for continuous observations.
+
+Unlike the finite-state solver, this implementation cannot materialize a
+complete state--action table.  It evaluates the parametrizations at dataset
+observations, accumulates the occupancy geometry from sample features or
+Jacobians, and samples policy actions when an action expectation cannot be
+enumerated.
+"""
 
 from __future__ import annotations
 
@@ -12,12 +19,21 @@ from ...fogas.continuous_fogas_dataset import ContinuousFOGASDataset
 
 
 class ContinuousFinalParametrizedSolver:
-    """
-    Generalized FOGAS solver for continuous observations.
+    """Generalized FOGAS for vector observations and general action spaces.
 
-    This class supports neural parametrizations only.  Discrete actions use
-    exact sums over actions; continuous actions use Monte Carlo samples from the
-    policy for policy expectations.
+    The residual-weighting, action-value, and policy modules are evaluated
+    directly on continuous observation vectors.  Linear RBF wrappers and neural
+    wrappers are both supported.  For a linear ``u_beta``, the solver consumes
+    its feature matrix directly; otherwise it obtains per-transition Jacobians
+    with ``torch.func`` (or a compatible autograd fallback) to construct the
+    full or diagonal local matrix ``G_t``.
+
+    Finite actions are enumerated for exact value and policy expectations.
+    Continuous actions are sampled from the supplied policy, so they require a
+    policy with ``sample`` and ``log_prob_actions`` methods and a REINFORCE
+    policy update.  Chunk-size arguments limit the memory required by value
+    evaluation and Jacobian accumulation.  Terminal transitions are masked
+    using the ``done`` column loaded by ``ContinuousFOGASDataset``.
     """
 
     _ACTION_TYPES = {"discrete", "continuous"}
@@ -810,6 +826,20 @@ class ContinuousFinalParametrizedSolver:
         log_interval=None,
         checkpoint_callback=None,
     ):
+        """Optimize Generalized FOGAS and return the learned policy module.
+
+        ``alpha``, ``eta``, and ``rho`` control the policy step, occupancy step,
+        and stabilization respectively.  With discrete actions,
+        ``policy_gradient='exact'`` enumerates the actions and
+        ``'reinforce'`` samples them.  Continuous actions only support the
+        sampled REINFORCE form.  A checkpoint callback, when supplied, receives
+        ``(solver, completed_iteration, diagnostics)`` after each update.
+
+        Returns:
+            The trained ``policy_param`` module.  Use :meth:`sample_action`,
+            :meth:`policy_probs`, :meth:`q_values`, and :meth:`q` for inference;
+            final flattened parameters and histories remain on the solver.
+        """
         T = self.T if T is None else int(T)
         alpha = self.alpha if alpha is None else float(alpha)
         eta = self.eta if eta is None else float(eta)
@@ -922,8 +952,16 @@ class ContinuousFinalParametrizedSolver:
         final_theta = self._module_flat_params(self.q_param).detach().clone().to(dtype=torch.float64)
 
         for t in iterator:
+            # Only transitions from the fixed dataset are sampled.  The batch
+            # carries a terminal mask so Bellman targets do not bootstrap past
+            # the end of an episode.
             batch = self._sample_batch()
             coeff = self._u_sample_values(batch).detach().to(dtype=torch.float64)
+
+            # 1. Approximate the regularized value-parameter best response on
+            # the observed continuous states.  Value expectations enumerate
+            # finite actions or use Monte Carlo policy samples for continuous
+            # actions.
             theta_t, lambda_theta, q_objective, theta_grad_norm, theta_lr_used = self._compute_theta_update(
                 coeff=coeff,
                 batch=batch,
@@ -938,6 +976,9 @@ class ContinuousFinalParametrizedSolver:
             beta_objective = (coeff * td_error).mean()
             total_loss = (1.0 - self.gamma) * v_x0 + beta_objective
 
+            # 2. Accumulate G_t from linear features or sample Jacobians and
+            # apply the stabilized occupancy-parameter ascent step.  The
+            # diagonal update avoids a dense d_beta x d_beta matrix.
             beta_update_direction, beta_grad, beta_diagnostics = self._compute_beta_update_direction(td_error, batch)
             beta_t = (1.0 / (1.0 + rho * eta)) * (
                 self._module_flat_params(self.u_param).to(dtype=beta_update_direction.dtype)
@@ -945,6 +986,9 @@ class ContinuousFinalParametrizedSolver:
             )
             self._set_module_flat_params(self.u_param, beta_t)
 
+            # 3. Ascend the policy objective.  Continuous actions cannot be
+            # enumerated, hence `_run_impl` requires the REINFORCE estimator in
+            # that setting.
             if policy_gradient == "exact":
                 policy_grad, policy_objective = self._exact_policy_gradient_discrete(coeff, batch)
             else:
@@ -1018,6 +1062,7 @@ class ContinuousFinalParametrizedSolver:
         return self.policy_param
 
     def policy_probs(self, observations):
+        """Return categorical action probabilities for observation vectors."""
         if self.action_type != "discrete":
             raise ValueError("policy_probs is only available for discrete actions")
         with torch.no_grad():
@@ -1025,6 +1070,7 @@ class ContinuousFinalParametrizedSolver:
             return self.policy_param.probs(obs).detach().clone()
 
     def q_values(self, observations):
+        """Evaluate ``Q_theta`` for every discrete action at each observation."""
         if self.action_type != "discrete":
             raise ValueError("q_values is only available for discrete actions")
         obs = self._obs_tensor(observations, self.q_param)
@@ -1034,11 +1080,13 @@ class ContinuousFinalParametrizedSolver:
         return self.q_param.q(repeated_obs, action_ids.reshape(-1, 1)).reshape(n, self.n_actions)
 
     def q(self, observations, actions):
+        """Evaluate ``Q_theta`` at paired observations and actions."""
         obs = self._obs_tensor(observations, self.q_param)
         action_tensor = self._action_tensor(actions, dtype=self._param_dtype(self.q_param))
         return self.q_param.q(obs, action_tensor)
 
     def sample_action(self, observation, deterministic=False):
+        """Sample one policy action, or return its greedy/mean action."""
         obs = self._obs_tensor(observation, self.policy_param)
         with torch.no_grad():
             action = self.policy_param.sample(obs, deterministic=deterministic)

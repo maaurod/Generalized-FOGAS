@@ -1,3 +1,13 @@
+"""Finite-space feature maps and parametrizations for Generalized FOGAS.
+
+The module has three layers.  Feature-map classes describe finite
+state--action pairs; table builders normalize custom maps to the tensor layout
+used by the linear solvers; and PyTorch wrappers expose the ``u``, ``q``, and
+policy interfaces consumed by :class:`FinalParametrizedSolver`.  The three
+optimization variables intentionally may use different representations and
+parameter dimensions.
+"""
+
 from typing import Callable, Iterable, Optional, Protocol, Sequence, Union
 
 import torch
@@ -32,8 +42,12 @@ __all__ = [
 TensorLike = Union[torch.Tensor, list, tuple]
 
 
+# ---------------------------------------------------------------------------
+# Finite feature maps
+# ---------------------------------------------------------------------------
+
 class FeatureFunction(Protocol):
-    """Finite state-action feature parametrization interface."""
+    """Protocol for a finite state--action feature map."""
 
     def table(self, n_states, n_actions, device=None, dtype=torch.float64):
         """Return a table with shape (n_states, n_actions, d)."""
@@ -41,7 +55,12 @@ class FeatureFunction(Protocol):
 
 
 class TabularFeatures:
-    """One-hot features for finite state-action pairs."""
+    """One-hot features with one coordinate per finite state--action pair.
+
+    The dimension is ``n_states * n_actions``.  These features remove
+    function-approximation error from tabular update ablations and make
+    ``u_beta`` capable of assigning an independent weight to every pair.
+    """
 
     def __init__(self, n_states, n_actions, dtype=torch.float64):
         self.n_states = int(n_states)
@@ -77,7 +96,13 @@ class TabularFeatures:
 
 
 class RBFStateFeatures:
-    """Radial basis features for finite discrete states."""
+    """Radial-basis representation of finite states through coordinates.
+
+    State identifiers are first mapped to coordinate vectors.  Each feature is
+    a Gaussian response around one supplied center; an optional bias coordinate
+    can be appended.  Bandwidths may be supplied directly or inferred from the
+    spacing of the centers.
+    """
 
     def __init__(
         self,
@@ -227,7 +252,12 @@ class RBFStateFeatures:
 
 
 class RBFStateActionFeatures:
-    """Action-coupled RBF features zeta(s, a) = e_a kron phi(s)."""
+    """Action-coupled RBF features ``zeta(s,a) = e_a kron phi(s)``.
+
+    Placing the state representation in an action-specific block lets a linear
+    model learn distinct coefficients for every action while sharing the RBF
+    construction across actions.
+    """
 
     def __init__(self, state_features, n_actions, dtype=torch.float64):
         if state_features is None:
@@ -296,6 +326,10 @@ class LinearFunction:
         return build_feature_table(self.features, n_states, n_actions, device=device, dtype=dtype)
 
 
+# ---------------------------------------------------------------------------
+# Feature-table adapters used by the linear fast paths
+# ---------------------------------------------------------------------------
+
 def build_feature_table(features, n_states, n_actions, device=None, dtype=torch.float64, name="features"):
     """
     Build a finite state-action feature table.
@@ -343,6 +377,7 @@ def build_feature_table(features, n_states, n_actions, device=None, dtype=torch.
 
 
 def build_u_feature_table(u_function, n_states, n_actions, device=None, dtype=torch.float64):
+    """Build the ``u_beta`` feature tensor with shape ``(N, A, d_u)``."""
     return build_feature_table(
         u_function,
         n_states,
@@ -354,6 +389,7 @@ def build_u_feature_table(u_function, n_states, n_actions, device=None, dtype=to
 
 
 def build_q_feature_table(q_function, n_states, n_actions, device=None, dtype=torch.float64):
+    """Build the ``Q_theta`` feature tensor with shape ``(N, A, d_Q)``."""
     return build_feature_table(
         q_function,
         n_states,
@@ -365,6 +401,7 @@ def build_q_feature_table(q_function, n_states, n_actions, device=None, dtype=to
 
 
 def build_policy_feature_table(policy_features, n_states, n_actions, device=None, dtype=torch.float64):
+    """Build the policy-logit feature tensor with shape ``(N, A, d_pi)``."""
     return build_feature_table(
         policy_features,
         n_states,
@@ -380,8 +417,12 @@ LinearQFunction = LinearFunction
 TabularPolicyFeatures = TabularFeatures
 
 
+# ---------------------------------------------------------------------------
+# Interfaces expected by the reference discrete solver
+# ---------------------------------------------------------------------------
+
 class UParam(Protocol):
-    """Auxiliary FOGAS u_beta parametrization interface."""
+    """Residual-weighting function ``u_beta`` interface."""
 
     is_linear_fast_path: bool
 
@@ -396,7 +437,7 @@ class UParam(Protocol):
 
 
 class QParam(Protocol):
-    """Action-value FOGAS Q_theta parametrization interface."""
+    """Action-value function ``Q_theta`` interface."""
 
     is_linear_fast_path: bool
 
@@ -432,7 +473,12 @@ class PolicyParam(Protocol):
 
 
 class LinearUParam(nn.Module):
-    """Linear auxiliary model u_beta(s, a) = beta^T phi_u(s, a)."""
+    """Linear residual-weighting model ``u_beta = beta^T phi_u``.
+
+    The registered feature table marks this module as a linear fast path, so
+    the solver can use the feature covariance directly instead of constructing
+    sample Jacobians with autograd.
+    """
 
     is_linear_fast_path = True
 
@@ -548,6 +594,10 @@ class SoftmaxLinearPolicyParam(nn.Module):
         return self.probs(states)
 
 
+# ---------------------------------------------------------------------------
+# Neural modules and solver-interface wrappers
+# ---------------------------------------------------------------------------
+
 def _activation_factory(activation):
     if isinstance(activation, nn.Module):
         return lambda: activation.__class__()
@@ -602,9 +652,11 @@ class StateActionMLPModule(nn.Module):
     """
     Tanh MLP over discrete state-action descriptors.
 
-    If descriptors are omitted, state and action ids are represented with
-    one-hot vectors. The output can be scalar for u/Q or an embedding for custom
-    wrappers.
+    If descriptors are omitted, state and action identifiers are represented
+    with one-hot vectors.  Supplying coordinates or other descriptors is useful
+    when the model should share information between nearby states.  The output
+    is scalar for the standard ``u`` and ``Q`` wrappers, but may be an embedding
+    for a custom wrapper.
     """
 
     def __init__(
@@ -682,7 +734,7 @@ class StateMLPPolicyModule(nn.Module):
 
 
 class NeuralUParam(nn.Module):
-    """Neural auxiliary wrapper. The module maps (states, actions) to scalars."""
+    """Adapt a scalar neural module to the ``u_beta(states, actions)`` API."""
 
     is_linear_fast_path = False
 
@@ -698,7 +750,7 @@ class NeuralUParam(nn.Module):
 
 
 class NeuralQParam(nn.Module):
-    """Neural action-value wrapper. The module maps (states, actions) to scalars."""
+    """Adapt a scalar neural module to the ``Q_theta(states, actions)`` API."""
 
     is_linear_fast_path = False
 

@@ -1,3 +1,11 @@
+"""Reference Generalized FOGAS solver for finite state and action spaces.
+
+The three optimization variables are ordinary PyTorch modules.  Linear
+wrappers expose feature tables and use optimized tensor paths; nonlinear
+wrappers use autograd and sample Jacobians.  This keeps a single reference
+implementation for the linear/RBF and neural discrete experiments.
+"""
+
 import random
 
 import numpy as np
@@ -14,12 +22,25 @@ from ..fogas_parameters import GeneralizedFOGASParameters
 
 
 class FinalParametrizedSolver:
-    """
-    Standalone generalized FOGAS solver over PyTorch parametrizations.
+    """Generalized FOGAS with parametrized ``u``, ``Q``, and discrete policy.
 
-    Linear parametrizations keep the same closed-form fast paths as
-    FinalLinearSolver. Nonlinear parametrizations use autograd for beta, theta,
-    and policy updates.
+    This is the reference solver when both the state and action spaces are
+    finite.  It optimizes the empirical saddle-point objective over a
+    residual-weighting function ``u_beta``, an action-value function
+    ``Q_theta``, and a policy ``pi_psi``.  The three modules are independent and
+    need not share features or parameter dimensions.
+
+    ``LinearUParam``, ``LinearQParam``, and ``SoftmaxLinearPolicyParam`` enable
+    precomputed feature tables and closed-form tensor calculations.  Neural
+    wrappers use autograd for the value, policy, and occupancy derivatives.
+    In both cases, the occupancy geometry is the empirical outer product of
+    ``grad_beta u_beta`` (full or diagonal), which reduces to the feature
+    covariance matrix for a linear residual-weighting function.
+
+    The implementation enumerates finite actions to compute exact policy
+    expectations when requested.  Use ``ContinuousFinalParametrizedSolver``
+    when observations are vectors that cannot be represented by finite state
+    identifiers.
     """
 
     _THETA_MODES = {"reg_adaptive", "reg_fixed", "projection"}
@@ -1085,6 +1106,20 @@ class FinalParametrizedSolver:
         state_weight_update="normal",
         c_min=0.1,
     ):
+        """Optimize Generalized FOGAS and return the learned policy matrix.
+
+        Constructor update settings may be overridden for this run without
+        permanently mutating the solver.  ``policy_gradient='exact'`` sums over
+        every finite action; ``'reinforce'`` uses ``reinforce_samples`` actions
+        per state.  ``policy_optimizer='adam'``, a warm-started regularized Adam
+        value response, and ``beta_update='fogas_diag'`` form the practical
+        thesis configuration when set explicitly.
+
+        Returns:
+            A ``(n_states, n_actions)`` stochastic policy tensor.  Final
+            parameters are also stored in ``theta``, ``psi``, and ``beta_T``;
+            iteration statistics are returned by :meth:`get_diagnostics`.
+        """
         T = self.params.T if T is None else int(T)
         alpha = self.params.alpha if alpha is None else float(alpha)
         eta = self.params.eta if eta is None else float(eta)
@@ -1226,6 +1261,9 @@ class FinalParametrizedSolver:
         final_theta = self._module_flat_params(self.q_param).detach().clone().to(dtype=torch.float64)
 
         for t in iterator:
+            # A batch contains only offline transitions.  Finite state/action
+            # grids remain available for exact policy and value expectations;
+            # batch_size controls only the empirical dataset terms.
             batch = self._sample_batch()
             if self.policy_is_linear:
                 psi_t = self._module_flat_params(self.policy_param).detach().clone()
@@ -1235,6 +1273,10 @@ class FinalParametrizedSolver:
 
             coeff = self._u_sample_values(batch).detach().to(dtype=torch.float64)
 
+            # 1. Approximate the regularized value-parameter best response.
+            # Linear Q modules use the feature-space mismatch directly;
+            # nonlinear modules minimize the same empirical objective with
+            # autograd and the configured inner optimizer.
             if self.q_is_linear:
                 E_q_pi = (pi_mat.to(dtype=self.Q_XA.dtype)[..., None] * self.Q_XA).sum(dim=1)
                 beta_for_theta = self._module_flat_params(self.u_param).to(dtype=self.Q_XA.dtype)
@@ -1282,6 +1324,9 @@ class FinalParametrizedSolver:
             beta_objective = (coeff * td_error).mean()
             total_loss = (1.0 - self.gamma) * v_x0 + beta_objective
 
+            # 2. Build the occupancy ascent direction.  For linear u this is
+            # the covariance-preconditioned feature gradient.  For nonlinear
+            # u, sample Jacobians replace features in the local matrix G_t.
             if self.u_is_linear:
                 beta_grad = (batch["U_sample"].T @ td_error.to(dtype=batch["U_sample"].dtype)) / batch["n"]
                 beta_update_direction, beta_diagnostics = self._compute_linear_beta_update_direction(
@@ -1312,6 +1357,9 @@ class FinalParametrizedSolver:
             else:
                 policy_state_weights = torch.clamp(state_weights, min=c_min)
 
+            # 3. Differentiate the policy objective while holding Q fixed.
+            # Exact enumeration is practical for finite actions; REINFORCE
+            # implements the sampled advantage estimator used in its ablation.
             if self.policy_is_linear:
                 pi_for_policy = self._linear_policy_matrix(psi_t).to(dtype=torch.float64)
                 if policy_gradient == "exact":
@@ -1382,6 +1430,8 @@ class FinalParametrizedSolver:
                     alpha,
                 )
 
+            # Store cumulative value parameters and the current policy iterate
+            # for convergence plots and post-run diagnostics.
             theta_bar_t = theta_bar_t + final_theta.to(dtype=theta_bar_t.dtype)
             theta_bar_history.append(theta_bar_t.clone())
             psi_t = self._module_flat_params(self.policy_param).detach().clone().to(dtype=torch.float64)

@@ -1,3 +1,12 @@
+"""Linear Generalized FOGAS workbench used for the thesis ablations.
+
+The implementation materializes the finite state--action feature tables once
+and expresses every update with dense tensor operations.  Keeping the complete
+set of value, policy, and occupancy update alternatives in this class makes it
+possible to change one design choice at a time on the tabular grids.  For new
+discrete experiments, :class:`FinalParametrizedSolver` is the reference API.
+"""
+
 import random
 
 import numpy as np
@@ -10,13 +19,26 @@ from ..fogas_parameters import GeneralizedFOGASParameters
 
 
 class FinalLinearSolver:
-    """
-    Standalone linear-u, linear-Q, linear-policy FOGAS solver with
-    configurable theta geometry and beta preconditioning.
+    """Linear Generalized FOGAS solver for controlled update ablations.
 
-    u_beta(x, a) = <beta, u_features(x, a)>
-    Q_theta(x, a) = <theta, q_features(x, a)>
-    pi_psi(a | x) = softmax_a(<psi, policy_features(x, a)>)
+    All states and actions are finite, but the residual-weighting function,
+    action-value function, and policy may use different linear feature maps:
+
+    ``u_beta(x,a) = <beta, phi_u(x,a)>``,
+    ``Q_theta(x,a) = <theta, phi_Q(x,a)>``, and
+    ``pi_psi(a|x) = softmax_a(<psi, phi_pi(x,a)>)``.
+
+    The class is optimized for the finite tabular grids used in the thesis: it
+    precomputes all three feature tensors, sampled rows, covariance matrices,
+    and reward coefficients.  Its broad update surface is intentional.  It
+    includes the full and diagonal Generalized FOGAS occupancy steps, the
+    preconditioning/stabilization ablations, quadratically regularized
+    best-response alternatives, several value-parameter geometries, and SGD,
+    Adam, or NPG policy updates.
+
+    ``FinalLinearSolver`` is therefore the ablation workbench, not the primary
+    nonlinear implementation.  Use ``FinalParametrizedSolver`` for the
+    reference finite-state implementation with PyTorch parametrizations.
     """
 
     _THETA_MODES = {"reg_adaptive", "reg_fixed", "projection"}
@@ -730,6 +752,19 @@ class FinalLinearSolver:
         state_weight_update="normal",
         c_min=0.1,
     ):
+        """Run the alternating linear Generalized FOGAS updates.
+
+        Arguments passed here temporarily override constructor settings for a
+        single run.  ``alpha``, ``eta``, and ``rho`` are respectively the
+        policy step size, occupancy step size, and FOGAS stabilization
+        coefficient.  The ``theta_*``, ``policy_*``, and ``beta_*`` arguments
+        select the alternatives compared in the thesis ablations.
+
+        Returns:
+            A ``(n_states, n_actions)`` tensor containing the learned
+            stochastic policy.  Per-iteration measurements are available
+            through :meth:`get_diagnostics`.
+        """
         T = self.params.T if T is None else int(T)
         alpha = self.params.alpha if alpha is None else float(alpha)
         eta = self.params.eta if eta is None else float(eta)
@@ -885,8 +920,11 @@ class FinalLinearSolver:
             pi_mat = self._linear_policy_matrix(psi_t)
             E_q_pi = (pi_mat[..., None] * self.Q_XA).sum(dim=1)
 
-            # Build the theta-space empirical mismatch using the current beta
-            # occupancy weights and the independent Q feature table.
+            # 1. Approximate the value-parameter best response.  In the linear
+            # case the empirical Lagrangian is linear in theta, so its complete
+            # dependence is summarized by this feature-space mismatch vector.
+            # The selected theta geometry then regularizes or projects the
+            # response to prevent an unbounded minimization.
             coeff = self.U_sample @ beta_t
             theta_mismatch = (1.0 - self.gamma) * E_q_pi[self.x0]
             theta_mismatch = theta_mismatch + (self.gamma / self.n) * (
@@ -914,8 +952,9 @@ class FinalLinearSolver:
             q_all = torch.tensordot(self.Q_XA, theta_t, dims=([2], [0]))
             v_x0 = (pi_mat[self.x0] * q_all[self.x0]).sum()
 
-            # This is the requested beta objective: empirical u_beta-weighted
-            # TD residual under the current Q_theta and policy.
+            # 2. Evaluate the sample TD error and the empirical
+            # u_beta-weighted residual term.  Its beta gradient is simply the
+            # feature-weighted average below because u_beta is linear.
             td_error = self.Rs + self.gamma * v - q_current
             beta_objective = (coeff * td_error).mean()
             total_loss = (1.0 - self.gamma) * v_x0 + beta_objective
@@ -928,8 +967,9 @@ class FinalLinearSolver:
                 rho=rho,
             )
 
-            # State weights define the policy objective over Q values; clipping
-            # matches the previous solver option for negative or tiny weights.
+            # 3. Form the state weights of the policy objective.  They combine
+            # the initial-state term with the next-state dataset term weighted
+            # by u_beta.  Clipping is retained only as an ablation option.
             state_weight_sums = torch.zeros(self.N, dtype=torch.float64, device=self.device)
             state_weight_sums.index_add_(0, self.X_nexts, coeff)
             state_weights = (self.gamma / self.n) * state_weight_sums
@@ -982,6 +1022,9 @@ class FinalLinearSolver:
                 policy_direction_kind = "cg_fisher"
                 psi_next = psi_t + alpha * policy_direction
 
+            # 4. Commit the one-step occupancy and policy ascent updates.  The
+            # beta direction already includes the selected local geometry;
+            # `_compute_beta_update` also applies stabilization when required.
             beta_step = beta_next - beta_t
             beta_t = beta_next
             theta_bar_t = theta_bar_t + theta_t

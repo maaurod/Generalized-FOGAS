@@ -1,3 +1,8 @@
+"""Compatibility imports for the original policy-feature module path.
+
+New code may import these names directly from ``rl_methods.fogas_generalization``.
+"""
+
 from .features import TabularFeatures as TabularPolicyFeatures
 from .features import build_policy_feature_table
 

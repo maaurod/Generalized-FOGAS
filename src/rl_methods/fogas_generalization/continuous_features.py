@@ -1,4 +1,11 @@
-"""Continuous-observation parametrizations for generalized FOGAS."""
+"""Continuous-observation parametrizations for Generalized FOGAS.
+
+These modules operate on observation vectors rather than finite state
+identifiers.  They provide linear RBF and neural residual-weighting/value
+functions, categorical policies for finite actions, and diagonal Gaussian
+policies for continuous actions.  Thin wrappers give every model the method
+names expected by ``ContinuousFinalParametrizedSolver``.
+"""
 
 from __future__ import annotations
 
@@ -8,6 +15,10 @@ from typing import Callable, Sequence, Union
 import torch
 from torch import nn
 
+
+# ---------------------------------------------------------------------------
+# Generic neural modules
+# ---------------------------------------------------------------------------
 
 def _activation_factory(activation: Union[type[nn.Module], Callable[[], nn.Module], nn.Module]):
     if isinstance(activation, nn.Module):
@@ -41,7 +52,13 @@ def _build_mlp(
 
 
 class ContinuousStateActionMLPModule(nn.Module):
-    """MLP over concatenated continuous observations and action descriptors."""
+    """MLP over concatenated observation and action vectors.
+
+    In a continuous-state/discrete-action problem, actions are passed as a
+    one-dimensional numeric descriptor by the current experiment wrappers.  In
+    a continuous-action problem, ``action_dim`` is the full action-vector
+    dimension.
+    """
 
     def __init__(
         self,
@@ -135,7 +152,12 @@ class ContinuousStateMLPPolicyModule(nn.Module):
 
 
 class ContinuousGaussianPolicyModule(nn.Module):
-    """Gaussian policy with an MLP mean and diagonal log standard deviation."""
+    """Gaussian policy with an MLP mean and learned diagonal standard deviation.
+
+    ``sample(..., deterministic=True)`` returns the mean action.  The
+    continuous solver uses ``log_prob_actions`` to construct its REINFORCE
+    policy-gradient estimate.
+    """
 
     def __init__(
         self,
@@ -202,7 +224,12 @@ class ContinuousGaussianPolicyModule(nn.Module):
 
 
 class ContinuousRBFStateActionFeatures(nn.Module):
-    """Action-coupled RBF features for continuous observations."""
+    """Action-coupled RBF features for continuous observations.
+
+    Gaussian state features are placed in an action-specific block, giving the
+    same ``e_a kron phi(x)`` construction as ``RBFStateActionFeatures`` without
+    discretizing the observation vector.
+    """
 
     def __init__(
         self,
@@ -260,7 +287,12 @@ class ContinuousRBFStateActionFeatures(nn.Module):
 
 
 class ContinuousLinearRBFUParam(nn.Module):
-    """Linear u_beta over continuous action-coupled RBF features."""
+    """Linear ``u_beta`` over continuous action-coupled RBF features.
+
+    Exposing the feature callable and a single ``beta`` parameter lets the
+    continuous solver accumulate ``G_t`` from feature batches without taking
+    per-sample autograd Jacobians.
+    """
 
     is_linear_fast_path = True
 
@@ -332,8 +364,12 @@ class ContinuousSoftmaxLinearRBFPolicyParam(nn.Module):
         return self.probs(observations)
 
 
+# ---------------------------------------------------------------------------
+# Solver-interface wrappers
+# ---------------------------------------------------------------------------
+
 class ContinuousNeuralUParam(nn.Module):
-    """Neural FOGAS u wrapper for continuous observations."""
+    """Adapt a scalar neural module to continuous ``u_beta`` calls."""
 
     is_linear_fast_path = False
 
@@ -349,7 +385,7 @@ class ContinuousNeuralUParam(nn.Module):
 
 
 class ContinuousNeuralQParam(nn.Module):
-    """Neural FOGAS Q wrapper for continuous observations."""
+    """Adapt a scalar neural module to continuous ``Q_theta`` calls."""
 
     is_linear_fast_path = False
 
@@ -365,7 +401,12 @@ class ContinuousNeuralQParam(nn.Module):
 
 
 class ContinuousDiscretePolicyParam(nn.Module):
-    """Categorical policy over finite actions from continuous observations."""
+    """Categorical policy over finite actions from continuous observations.
+
+    The wrapped module returns one logit per action.  Stochastic inference draws
+    from the categorical probabilities; deterministic inference takes their
+    argmax.
+    """
 
     is_linear_fast_path = False
 
