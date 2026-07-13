@@ -1,7 +1,7 @@
 # SBEED implementation and analysis
 
 This package contains the SBEED implementation used as one component of the
-thesis codebase. It is organized so the reader can follow both the development
+thesis codebase. It is organized to follow both the development
 path and the final cleaned solvers: first the staged implementations that extend
 and test the appendix ideas step by step, then the reusable datasets, feature
 parametrizations, and final solver classes used by the experiments.
