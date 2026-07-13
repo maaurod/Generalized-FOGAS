@@ -131,6 +131,8 @@ class DiscreteSBEEDDataset:
         self.D = torch.cat([self.D, torch.as_tensor(dones, dtype=torch.bool, device=device).reshape(-1)])
 
         if capacity is not None and self.X.numel() > capacity:
+            # FIFO replay keeps the newest transitions while preserving order
+            # for any later multi-step fragment sampling.
             self.X = self.X[-capacity:]
             self.A = self.A[-capacity:]
             self.R = self.R[-capacity:]

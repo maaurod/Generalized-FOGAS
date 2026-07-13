@@ -469,6 +469,8 @@ def train_one_config(
     try:
         initial_collect_steps = int(run_training_kwargs["initial_collect_steps"])
         if initial_collect_steps > 0:
+            # RBF runs collect a uniform warm-up buffer before switching to the
+            # current policy, reducing early instability from sparse coverage.
             solver.collect_steps(
                 transition_fn=transition_fn,
                 n_steps=initial_collect_steps,
@@ -481,6 +483,8 @@ def train_one_config(
 
         episodes = int(run_training_kwargs["episodes"])
         for episode in range(1, episodes + 1):
+            # Each loop alternates fresh on-policy collection with several
+            # SBEED updates on the FIFO replay buffer.
             solver.collect_steps(
                 transition_fn=transition_fn,
                 n_steps=run_training_kwargs["collect_per_episode"],
@@ -496,6 +500,8 @@ def train_one_config(
                 solver.loss_history.append(stats)
 
             if episode % eval_every_episodes == 0 or episode == episodes:
+                # Periodic evaluation uses a separate rollout pass so training
+                # diagnostics and control performance remain distinct.
                 eval_stats = evaluate_policy(
                     solver,
                     transition_fn,

@@ -196,6 +196,8 @@ def run_config(config: Dict[str, Any]) -> List[Dict[str, Any]]:
     torch.set_num_threads(int(config["torch_threads"]))
     device = torch.device(config["device"])
 
+    # Each worker loads the fixed offline buffer, attaches it to a fresh solver,
+    # and evaluates the same configuration at the predefined step checkpoints.
     dataset = load_dataset(Path(config["dataset_path"]), device)
     solver = make_solver(
         lr_value=float(config["lr_value"]),
@@ -216,6 +218,8 @@ def run_config(config: Dict[str, Any]) -> List[Dict[str, Any]]:
         last_stats = solver.step()
 
         if t in STEP_CHECKPOINTS:
+            # Checkpoints make it possible to compare learning speed, not just
+            # the final policy after all 5k updates.
             pi = solver.get_policy_matrix().detach().cpu().numpy()
             eval_stats = evaluate_greedy_policy(pi, max_eval_steps=MAX_EVAL_STEPS)
             row = {

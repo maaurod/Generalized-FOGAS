@@ -234,6 +234,8 @@ class DiscreteSBEED:
             terminals = self.dataset.D.to(device=self.device, dtype=torch.bool)
             return starts, lengths, terminals
 
+        # For multi-step targets, scan every possible replay window and keep
+        # only starts that either have a full horizon or terminate naturally.
         all_starts = torch.arange(self.n, dtype=torch.int64, device=self.device)
         offsets = torch.arange(self.rollout_length, dtype=torch.int64, device=self.device)
         window_indices = all_starts[:, None] + offsets[None, :]
@@ -276,6 +278,8 @@ class DiscreteSBEED:
         terminals: torch.Tensor,
     ) -> Dict[str, torch.Tensor]:
         """Materialize a batch of padded fragments plus masks and discounts."""
+        # Padding keeps every fragment in a rectangular tensor; `mask` and
+        # `weights` ensure only realized transitions contribute to the target.
         offsets = torch.arange(self.rollout_length, dtype=torch.int64, device=self.device)
         fragment_indices = starts[:, None] + offsets[None, :]
         safe_indices = fragment_indices.clamp_max(max(self.n - 1, 0))
@@ -597,11 +601,15 @@ class DiscreteSBEED:
         batch = self._fragment_batch(starts, lengths, terminals)
 
         self.update_index += 1
+        # All three learning rates share the same inverse-time decay used in
+        # the SBEED experiments, but each parameter block keeps its own base LR.
         decay = 1.0 / (1.0 + float(self.update_index) / self.tau)
         value_step_size = self.lr_value * decay
         rho_step_size = self.lr_rho * decay
         policy_step_size = self.lr_policy * decay
 
+        # The update order follows the thesis implementation: fit rho to the
+        # current target, update V against that target, then move the policy.
         if self.rho_param.is_linear_fast_path:
             beta_grad_norm = self._linear_rho_update(batch, rho_step_size)
         else:
@@ -801,6 +809,8 @@ class DiscreteSBEED:
         self._reset_optimizer_state()
 
         if initial_collect_steps > 0:
+            # Warm-up collection gives the first optimization steps enough
+            # replay support before the policy starts changing.
             self.collect_steps(
                 transition_fn=transition_fn,
                 n_steps=initial_collect_steps,

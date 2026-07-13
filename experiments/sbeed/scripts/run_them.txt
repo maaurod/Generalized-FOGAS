@@ -1,8 +1,0 @@
-# 1. Deterministic RBF Search
-sbatch cpu_batch.slurm experiments/sbeed/scripts/grid_search_5grid_sbeed_rbf_deterministic.py
-
-# 2. Stochastic RBF Search
-sbatch cpu_batch.slurm experiments/sbeed/scripts/grid_search_5grid_sbeed_rbf_stochastic.py
-
-# 3. Stochastic Tabular Search
-sbatch cpu_batch.slurm experiments/sbeed/scripts/grid_search_5grid_sbeed_stochastic.py

@@ -328,6 +328,8 @@ class ContinuousSBEED:
             terminals = self.dataset.D.to(device=self.device, dtype=torch.bool)
             return starts, lengths, terminals
 
+        # Continuous replay is ordered exactly like environment interaction, so
+        # multi-step targets can be built from contiguous windows until done.
         all_starts = torch.arange(self.n, dtype=torch.int64, device=self.device)
         offsets = torch.arange(self.rollout_length, dtype=torch.int64, device=self.device)
         window_indices = all_starts[:, None] + offsets[None, :]
@@ -366,6 +368,8 @@ class ContinuousSBEED:
         terminals: torch.Tensor,
     ) -> Dict[str, torch.Tensor]:
         """Materialize padded observation-action fragments and discount masks."""
+        # The padded tensors keep batch operations simple; masks/discounts make
+        # terminal and short fragments behave as variable-length trajectories.
         offsets = torch.arange(self.rollout_length, dtype=torch.int64, device=self.device)
         fragment_indices = starts[:, None] + offsets[None, :]
         safe_indices = fragment_indices.clamp_max(max(self.n - 1, 0))
@@ -650,6 +654,8 @@ class ContinuousSBEED:
         rho_step_size = self._learning_rate("rho", self.lr_rho)
         policy_step_size = self._learning_rate("policy", self.lr_policy)
 
+        # Keep the same rho -> value -> policy order as the final discrete
+        # solver, but use neural Adam updates and Gaussian-policy Fisher steps.
         beta_grad_norm = self._rho_update(batch, rho_step_size)
         theta_grad_norm = self._value_update(batch, value_step_size)
         policy_grad_norm, policy_direction_norm, policy_diagnostics = self._policy_update(
@@ -839,6 +845,8 @@ class ContinuousSBEED:
         reset_kwargs = {"seed": self.seed} if self.seed is not None else {}
         obs = self._parse_env_reset(env.reset(**reset_kwargs))
         if initial_random_steps > 0:
+            # Random warm-up populates the continuous replay buffer before the
+            # Gaussian policy has meaningful fitted features.
             obs, returns = self._collect_env_steps(
                 env,
                 obs,

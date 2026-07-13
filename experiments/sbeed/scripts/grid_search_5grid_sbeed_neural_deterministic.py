@@ -643,6 +643,8 @@ def run_neural_grid_search(
     output_dir.mkdir(parents=True, exist_ok=True)
     csv_path = output_dir / "sbeed_neural_deterministic_grid_search.csv"
     jobs = make_jobs(configs)
+    # Resume mode skips configuration ids already present in the CSV, which is
+    # useful for long neural searches interrupted on a workstation or cluster.
     completed_config_ids = completed_config_ids_from_csv(csv_path) if resume else set()
     jobs = [job for job in jobs if job[1] not in completed_config_ids]
     requested_device = REQUESTED_DEVICE

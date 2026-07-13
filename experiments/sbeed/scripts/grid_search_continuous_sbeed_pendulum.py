@@ -407,6 +407,8 @@ def run_one(
         solver = build_solver(env, cfg, device=device)
 
         def eval_callback(eval_solver: Any, episode: int, _: Optional[Dict[str, float]]) -> Dict[str, Any]:
+            # Use deterministic policy means for evaluation so stochastic
+            # exploration noise does not dominate the ranking metric.
             stats = evaluate_policy(
                 eval_solver,
                 env_id=str(cfg["env_id"]),
@@ -444,6 +446,8 @@ def run_one(
         periodic_eval_history = result.get("eval_history", [])
         best_eval_stats = best_eval_from_history(periodic_eval_history)
 
+        # One CSV row contains configuration, final training diagnostics, and
+        # the best periodic evaluation so long runs can be ranked afterwards.
         row = {
             "experiment_id": int(cfg["experiment_id"]),
             "status": "ok",

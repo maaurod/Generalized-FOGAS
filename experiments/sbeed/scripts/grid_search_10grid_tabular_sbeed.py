@@ -357,6 +357,8 @@ def run_config(config: Dict[str, Any]) -> Dict[str, Any]:
     try:
         torch.set_num_threads(int(config["torch_threads"]))
         device = torch.device(config["device"])
+        # Offline search: every run starts from a fixed CSV replay buffer, then
+        # applies only SBEED optimization steps before policy evaluation.
         dataset = load_dataset(Path(config["dataset_path"]), device)
         solver = build_solver(config, dataset_n=dataset.n, device=device)
         solver.dataset = dataset
@@ -373,6 +375,8 @@ def run_config(config: Dict[str, Any]) -> Dict[str, Any]:
             primal_tail.append(float(last_stats["primal_mse"]))
             dual_tail.append(float(last_stats["dual_mse"]))
             if len(objective_tail) > 100:
+                # Keep a rolling tail so CSV rows show both final metrics and
+                # recent stability without storing the full loss history.
                 objective_tail.pop(0)
                 primal_tail.pop(0)
                 dual_tail.pop(0)
@@ -453,6 +457,8 @@ def run_config(config: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def build_configs(args: argparse.Namespace) -> List[Dict[str, Any]]:
+    # The Cartesian product below is the actual hyperparameter grid. Dataset
+    # paths are part of the grid so several offline buffers can be compared.
     configs: List[Dict[str, Any]] = []
     run_id = 0
     devices = list(args.devices)

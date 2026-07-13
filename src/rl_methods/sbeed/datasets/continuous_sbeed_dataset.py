@@ -138,6 +138,8 @@ class ContinuousSBEEDDataset:
         self.D = torch.cat([self.D, torch.as_tensor(dones, dtype=torch.bool, device=device).reshape(-1)])
 
         if capacity is not None and self.R.numel() > capacity:
+            # FIFO truncation keeps recent environment order intact, which is
+            # required by the continuous multi-step target construction.
             self.X = self.X[-capacity:]
             self.A = self.A[-capacity:]
             self.R = self.R[-capacity:]
