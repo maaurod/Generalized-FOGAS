@@ -1,8 +1,15 @@
+# Numerical and reinforcement-learning dependencies
 numpy>=1.21.0
 pandas>=1.3.0
 matplotlib>=3.4.0
 scikit-learn>=1.0.0
 scipy>=1.7.0
 tqdm>=4.62.0
-gymnasium>=0.28.0
+gymnasium[classic-control]>=0.28.0
 torch>=1.10.0
+
+# Notebook analysis, figures, and animations
+seaborn>=0.11.0
+imageio>=2.19.0
+jupyterlab>=3.4.0
+ipykernel>=6.0.0
