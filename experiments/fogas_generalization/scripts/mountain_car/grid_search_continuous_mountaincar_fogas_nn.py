@@ -1,9 +1,26 @@
-"""
-Continuous-observation FOGAS NN grid search for MountainCar.
+"""Run the broad neural Generalized FOGAS search for Mountain Car.
 
-This script uses the generic ContinuousFinalParametrizedSolver on the
-continuous MountainCar dataset and evaluates candidates by rollout mean steps.
-Lower greedy_mean_steps is better, with solver_mean_steps used as the tie-break.
+Scientific role
+---------------
+This thesis-facing search applies ``ContinuousFinalParametrizedSolver`` to the
+original two-dimensional Mountain Car observations with two-layer tanh neural
+parametrizations for the residual-weighting function, action-value function,
+and discrete-action policy. It establishes the promising regions subsequently
+searched more closely by ``grid_search_continuous_mountaincar_fogas_nn_refined``.
+
+Inputs and outputs
+------------------
+The fixed input is
+``data/results/generalization/mountain_car/mountaincar_data_obs_columns.csv``.
+Candidate, best-row, and evaluation-checkpoint tables are written to the same
+Mountain Car result directory. The refined script imports this module as its
+shared environment, model, training, and multiprocessing implementation, so
+this file is both an executable search and required infrastructure.
+
+Run directly from the repository root. Lower greedy-policy episode length is
+the primary ranking metric in this broad search, with solver-policy episode
+length as a tie-break. Use ``--max-runs`` for a smoke test, ``--resume`` for a
+long run, and ``--help`` for worker, device, and time-budget controls.
 """
 
 from __future__ import annotations
@@ -167,6 +184,7 @@ def set_seed(seed):
         torch.mps.manual_seed(seed)
 
 
+# Fixed continuous-observation dataset preparation and candidate construction.
 def prepare_dataset(dataset_path):
     dataset_path = Path(dataset_path)
     if not dataset_path.exists():
@@ -317,6 +335,7 @@ def base_row(params, device, status="ok", error="", batch_size=np.nan):
     return row
 
 
+# Neural solver construction and matched solver/greedy rollout evaluation.
 def make_solver(
     dataset_path,
     device,
@@ -566,6 +585,7 @@ def run_candidate(
     return row, checkpoint_rows
 
 
+# Device-isolated candidate execution and parent-owned checkpoint aggregation.
 def run_candidate_worker(
     params,
     dataset_path,

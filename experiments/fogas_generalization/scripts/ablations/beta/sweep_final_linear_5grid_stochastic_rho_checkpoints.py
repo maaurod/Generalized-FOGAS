@@ -1,10 +1,22 @@
-"""
-FinalLinearSolver stochastic 5x5 rho sweep with checkpointed average rewards.
+"""Produce the focused stabilization sweep used in the beta ablation.
 
-This is a narrow ablation script: it keeps the beta-ablation stochastic
-baseline fixed, sweeps only rho, runs five seeds by default, and evaluates the
-policy every T / 20 solver iterations. Results are saved after each completed
-rho/seed run so long jobs can be resumed.
+Scientific role
+---------------
+This thesis-facing diagnostic keeps the selected stochastic 5 x 5
+Generalized FOGAS configuration fixed and varies only ``rho``. Checkpointed
+evaluation across seeds shows how stabilization changes the learning curve,
+not only the final reward.
+
+Inputs and outputs
+------------------
+The script reads ``data/datasets/generalization/5grid_stochastic.csv`` and
+writes raw checkpoint rows plus a grouped summary to
+``data/results/generalization/ablations/beta``. ``notebooks/ablations.ipynb``
+loads the summary for the focused rho plot.
+
+Run this file directly from the repository root. Five seeds and evaluations
+every ``T / 20`` iterations are used by default; completed rho/seed runs are
+saved immediately and can be skipped with ``--resume``.
 """
 
 from __future__ import annotations

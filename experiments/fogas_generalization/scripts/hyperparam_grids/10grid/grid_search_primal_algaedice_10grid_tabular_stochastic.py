@@ -1,8 +1,14 @@
-"""
-PrimalAlgaeDICESolver tabular grid search for the stochastic clean 10x10 grid.
+"""Select AlgaeDICE settings for the additional stochastic 10-grid.
 
-The script writes results after every candidate so completed runs survive
-interruptions. Use --max-runs for a quick smoke test and --resume for long runs.
+This executable entry point delegates to
+``primal_algaedice_10grid_tabular_common`` with stochastic dynamics. It reads
+the stochastic fixed dataset under ``data/datasets/generalization`` and writes
+candidate and best-row tables under
+``data/results/generalization/hyperparam_grids/10grid``. This search is kept as
+an additional baseline experiment rather than a main thesis result.
+
+Run from the repository root. Results are checkpointed after every candidate;
+use ``--max-runs`` for a smoke test and ``--resume`` for the full search.
 """
 
 from primal_algaedice_10grid_tabular_common import run_grid_search

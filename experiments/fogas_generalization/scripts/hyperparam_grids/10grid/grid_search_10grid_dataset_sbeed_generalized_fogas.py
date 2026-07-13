@@ -1,14 +1,27 @@
-"""
-Dataset grid search for SBEED and generalized FOGAS on the clean 10x10 tabular grid.
+"""Produce the thesis SBEED and Generalized FOGAS coverage tables.
 
-The dataset grid mirrors:
-    experiments/fogas/scripts/grid_search_10grid_fqi.py
-    experiments/fogas/scripts/grid_search_10grid_fogas.py
+Scientific role
+---------------
+This thesis-facing entry point evaluates SBEED and Generalized FOGAS on the
+deterministic 10 x 10 dataset grid used by the original FOGAS and FQI scripts.
+Dataset size, exploration, optimal/random behaviour-policy mixture, and the
+initial-state distribution are varied while each solver's selected
+hyperparameters remain fixed.
 
-One deterministic 10-grid dataset variant is collected per worker task. The
-worker computes feature coverage once, then runs the requested fixed-parameter
-algorithms. The parent process owns CSV writes so parallel workers never write
-to the same file concurrently.
+Inputs and outputs
+------------------
+One matched dataset is collected per worker task. The worker computes feature
+coverage once and evaluates the requested algorithms; the parent writes
+``sbeed_dataset_grid.csv`` and
+``generalized_fogas_dataset_grid_10grid_tabular_new_best_hparams.csv`` under
+``data/results/generalization/hyperparam_grids/10grid``. These tables are
+joined with the FOGAS, FQI, and AlgaeDICE results in
+``notebooks/10grid_comparison.ipynb``.
+
+Run this file directly from the repository root. Use ``--algorithms`` to
+select the methods, ``--max-datasets`` for a smoke test, and ``--resume`` for the
+full sweep. Temporary per-candidate datasets are isolated by worker, and only
+the parent process writes shared result CSVs.
 """
 
 from __future__ import annotations
@@ -120,7 +133,7 @@ TERMINAL_STATES = {GOAL_GRID, *PIT_GRIDS}
 
 
 # ---------------------------------------------------------------------
-# Fixed SBEED hyperparameters from 10grid_comparation.ipynb.
+# Fixed SBEED hyperparameters used by notebooks/10grid_comparison.ipynb.
 # ---------------------------------------------------------------------
 SBEED_STEPS = 3_000
 SBEED_LAMBDA_ENTROPY = 1e-4
@@ -297,6 +310,7 @@ def configure_worker_threads(torch_threads):
         pass
 
 
+# Matched 10-grid environment and offline-dataset generation protocol.
 def state_to_pos(s):
     return divmod(int(s), GRID_SIZE)
 
@@ -609,6 +623,7 @@ def build_gen_fogas_solver(dataset_path, device):
     )
 
 
+# Algorithm-specific training with a shared evaluator and metric schema.
 def blank_metrics():
     return {
         "feature_coverage": np.nan,
@@ -981,6 +996,7 @@ def parse_args():
     return parser.parse_args()
 
 
+# Resumable multi-algorithm task construction and parent-owned CSV writes.
 def candidate_key(candidate_or_row):
     return (
         int(candidate_or_row["dataset_size"]),

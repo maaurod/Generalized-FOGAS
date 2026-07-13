@@ -1,9 +1,27 @@
-"""
-Refined continuous-observation FOGAS NN grid search for MountainCar.
+"""Produce the selected neural Generalized FOGAS result for Mountain Car.
 
-This script reuses the original NN grid-search implementation and narrows the
-candidate grid around the best previous NN regions.  Results are ranked by the
-stochastic solver policy mean steps, with greedy performance as a tie-breaker.
+Scientific role
+---------------
+This thesis-facing entry point narrows the broad neural search around its most
+promising parameter regions. It reuses the base script's continuous dataset,
+two-layer tanh parametrizations, training loop, rollout evaluator, and worker
+infrastructure. Unlike the broad exploratory ranking, the refined table is
+ordered by stochastic solver-policy episode length, with greedy performance as
+the tie-break, matching the importance of reporting both policies in the
+thesis.
+
+Inputs and outputs
+------------------
+The script reads ``mountaincar_data_obs_columns.csv`` from
+``data/results/generalization/mountain_car`` and writes refined candidate,
+best-row, and checkpoint tables to that directory. ``notebooks/mountaincar.ipynb``
+loads ``continuous_fogas_nn_refined_grid_search.csv`` to present the selected
+neural result without rerunning the complete search interactively.
+
+Run directly from the repository root after the broad search has identified
+the refined ranges. Use ``--max-runs`` for a smoke test, ``--resume`` for the
+full search, and ``--help`` for worker, device, evaluation, and time-budget
+controls. Results are saved after every completed candidate.
 """
 
 from __future__ import annotations
@@ -63,6 +81,7 @@ def blank_metrics():
     }
 
 
+# Thesis evaluation protocol for stochastic and greedy neural policies.
 def evaluate_policy_rollouts(
     solver,
     num_trajectories,
@@ -141,6 +160,7 @@ def evaluate_solver_policy(
     }
 
 
+# Solver-first refined ranking and checkpointed output tables.
 def ordered_results_frame(results):
     df = pd.DataFrame(results)
     if df.empty:
@@ -230,6 +250,7 @@ def parse_args():
     return parser.parse_args()
 
 
+# Reuse the broad search worker while substituting the refined grid/evaluator.
 def run_candidate_worker(
     params,
     dataset_path,

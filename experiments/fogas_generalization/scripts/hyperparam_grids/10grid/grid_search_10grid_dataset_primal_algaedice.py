@@ -1,9 +1,25 @@
-"""
-Dataset grid search for Primal AlgaeDICE on the clean deterministic 10x10 tabular grid.
+"""Produce the thesis AlgaeDICE partial-coverage table on the 10 x 10 grid.
 
-This entrypoint mirrors the dataset grid used for SBEED/generalized FOGAS and
-uses the fixed Primal AlgaeDICE hyperparameters selected by
-primal_algaedice_10grid_tabular_new_grid_search_best.csv.
+Scientific role
+---------------
+This thesis-facing entry point evaluates the Fenchel/Primal AlgaeDICE baseline
+over the same deterministic dataset-generation grid used for FOGAS, FQI,
+SBEED, and Generalized FOGAS. Its solver hyperparameters are fixed to the best
+row selected by the preceding AlgaeDICE parameter search, so only the offline
+data distribution changes.
+
+Inputs and outputs
+------------------
+Each candidate generates a temporary matched dataset and evaluates the fixed
+tabular solver. The final table
+``primal_algaedice_dataset_grid_10grid_tabular_new_best_hparams.csv`` is written
+under ``data/results/generalization/hyperparam_grids/10grid`` and loaded by
+``notebooks/10grid_comparison.ipynb``.
+
+Run this file directly from the repository root after the deterministic
+AlgaeDICE hyperparameter search. Use ``--help`` for worker and device controls,
+``--max-datasets`` for a smoke test, and ``--resume`` for the full dataset sweep.
+Only the parent process writes the checkpointed result table.
 """
 
 from __future__ import annotations
@@ -73,6 +89,7 @@ FIELDNAMES = dataset_grid.BASE_COLUMNS + [
 ]
 
 
+# AlgaeDICE-specific solver construction and shared comparison metrics.
 def blank_primal_metrics():
     metrics = dataset_grid.blank_metrics()
     metrics.update(
@@ -318,6 +335,7 @@ def run_dataset_worker(payload):
         return failed_row(candidate, exc, time.perf_counter() - worker_start)
 
 
+# Resumable dataset tasks and parent-owned result aggregation.
 def parse_devices(value):
     devices = [item.strip() for item in str(value).split(",") if item.strip()]
     if not devices:

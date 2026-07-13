@@ -1,9 +1,25 @@
-"""
-Shared FinalLinearSolver grid-search utilities for 10x10 tabular grids.
+"""Shared Generalized FOGAS search infrastructure for the 10 x 10 grids.
 
-The two entrypoint scripts choose deterministic or stochastic dynamics. This
-module owns the common MDP, tabular features, metrics, resume logic, and worker
-execution so both searches produce comparable CSV files.
+Scientific role
+---------------
+This helper implements parameter selection for ``FinalLinearSolver`` with
+tabular residual-weighting, action-value, and policy features. The
+deterministic entry point selects the configuration used by the thesis
+partial-coverage comparison; the stochastic entry point is an additional
+experiment under noisy transitions.
+
+Inputs and outputs
+------------------
+Problem-specific settings select ``10grid_tabular_new.csv`` or the stochastic
+10-grid datasets under ``data/datasets/generalization``. Candidate and best-row
+CSVs are written to ``data/results/generalization/hyperparam_grids/10grid``.
+The selected deterministic configuration is then used by the dataset sweep
+presented in ``notebooks/10grid_comparison.ipynb``.
+
+This module is not an executable entry point. Run
+``grid_search_final_linear_10grid_tabular.py`` or its ``_stochastic`` variant
+from the repository root. The wrappers expose ``--max-runs``, ``--resume``,
+worker, thread, and device options; the parent process owns checkpoint writes.
 """
 
 from __future__ import annotations

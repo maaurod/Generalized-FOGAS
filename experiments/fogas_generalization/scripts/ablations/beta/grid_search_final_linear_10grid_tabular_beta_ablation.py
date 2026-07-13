@@ -1,14 +1,28 @@
-"""
-FinalLinearSolver tabular beta-update ablation for the deterministic 10x10 grid.
+"""Run the additional 10 x 10 occupancy-parameter diagnostics.
 
-This standalone script combines three workflows:
+Scientific role
+---------------
+This is a supplementary version of the thesis-facing 5 x 5 beta ablation. It
+checks the same Generalized FOGAS occupancy updates on the deterministic
+10 x 10 tabular grid used for the partial-coverage comparison. The MDP,
+dataset, and fixed non-beta hyperparameters match that comparison.
 
-  ablation  - beta-update grid search
-  curves    - rerun best beta-update settings and save learning curves
-  rho-sweep - checkpointed rho sweep for the fogas_full baseline
+Workflows
+---------
+``ablation`` searches the alternative beta updates, ``curves`` reruns the best
+settings at checkpoints, and ``rho-sweep`` isolates the stabilization
+coefficient for the complete preconditioned update.
 
-The MDP and fixed baseline hyperparameters match the deterministic 10-grid
-dataset-grid Generalized FOGAS setup.
+Inputs and outputs
+------------------
+The script reads ``data/datasets/generalization/10grid_tabular_new.csv`` and
+writes candidate, summary, checkpoint, and optional PNG outputs under
+``data/results/generalization/ablations/beta/10grid``. These results are
+retained as additional diagnostics; the thesis ablation figures come from the
+5 x 5 scripts and ``notebooks/ablations.ipynb``.
+
+Run this file directly from the repository root. Each subcommand exposes
+``--help``; long searches support resuming and ``--max-runs`` smoke tests.
 """
 
 from __future__ import annotations

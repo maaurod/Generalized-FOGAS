@@ -1,10 +1,23 @@
-"""
-Rerun the best beta-update ablation settings and save learning-curve checkpoints.
+"""Build the thesis learning curves for the 5 x 5 beta-update ablation.
 
-The script reads final_linear_5grid_tabular_beta_ablation.csv, selects the best
-successful row for each beta update on each 5x5 problem, then reruns those ten
-configurations with a fixed seed. During each run it evaluates the solver policy
-every T / 20 iterations and stores mean/std episode reward for plotting.
+Scientific role
+---------------
+The main beta grid selects configurations by their final evaluation. This
+thesis-facing follow-up reruns the best successful setting for every occupancy
+update on each 5 x 5 problem and records intermediate evaluations, making the
+learning speed and stability shown in ``notebooks/ablations.ipynb`` visible.
+
+Inputs and outputs
+------------------
+The script reads
+``data/results/generalization/ablations/beta/final_linear_5grid_tabular_beta_ablation.csv``
+and the two fixed 5 x 5 datasets. It evaluates the solver policy every
+``T / 20`` iterations and writes the checkpoint table and optional summary
+figure back to the beta-ablation result directory.
+
+Run this file directly from the repository root after the beta grid search.
+Use ``--help`` to inspect selection, output, and plotting options; the default
+fixed seed keeps the selected learning curves reproducible.
 """
 
 from __future__ import annotations

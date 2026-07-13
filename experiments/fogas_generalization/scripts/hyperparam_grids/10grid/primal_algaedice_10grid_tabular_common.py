@@ -1,10 +1,23 @@
-"""
-Shared PrimalAlgaeDICESolver grid-search utilities for 10x10 tabular grids.
+"""Shared AlgaeDICE parameter-search infrastructure for the 10 x 10 grids.
 
-The two entrypoint scripts choose deterministic or stochastic dynamics. This
-module mirrors the FinalLinearSolver 10-grid search: same MDP construction,
-datasets, resume behavior, multiprocessing/device handling, and evaluator
-metrics, with AlgaeDICE-specific hyperparameters and diagnostics.
+Scientific role
+---------------
+This helper keeps AlgaeDICE parameter selection aligned with the Generalized
+FOGAS search: the deterministic and stochastic entry points share MDP
+construction, fixed datasets, evaluator metrics, checkpointing, and worker
+handling. Only the AlgaeDICE-specific objective parameters and diagnostics
+differ. The deterministic selection feeds the thesis partial-coverage table;
+the stochastic selection is an additional experiment.
+
+Inputs and outputs
+------------------
+Problem-specific settings choose the deterministic or stochastic 10-grid CSV
+under ``data/datasets/generalization``. Candidate and best-row result tables
+are written to ``data/results/generalization/hyperparam_grids/10grid``.
+
+This helper is not executed directly. Run either
+``grid_search_primal_algaedice_10grid_tabular.py`` entry point from the
+repository root. Both expose smoke-test, resume, worker, and device controls.
 """
 
 from __future__ import annotations

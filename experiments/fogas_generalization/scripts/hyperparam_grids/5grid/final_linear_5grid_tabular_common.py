@@ -1,9 +1,23 @@
-"""
-Shared FinalLinearSolver tabular grid-search utilities for 5x5 generalization grids.
+"""Shared tabular Generalized FOGAS searches for the 5 x 5 grids.
 
-The two entrypoint scripts choose the deterministic or stochastic 5x5 problem.
-This module owns the common grid, tabular features, metrics, resume logic, and
-worker execution so both searches produce comparable CSV files.
+Scientific role
+---------------
+This helper selects ``FinalLinearSolver`` configurations on the deterministic
+and stochastic problems used by the thesis ablations. It centralizes the MDP,
+tabular feature construction, solver/greedy metrics, candidate grid, and
+checkpointing so the two environments remain directly comparable.
+
+Inputs and outputs
+------------------
+The entry points read ``5grid.csv`` or ``5grid_stochastic.csv`` under
+``data/datasets/generalization`` and write candidate plus best-row tables to
+``data/results/generalization/hyperparam_grids/5grid``. The selected settings
+provide reference configurations for the controlled ablation scripts and the
+representative runs in ``notebooks/grids.ipynb``.
+
+This common module is not executed directly. Run either tabular
+``grid_search_final_linear_5grid_*.py`` wrapper from the repository root. The
+wrappers expose smoke-test, resume, worker, thread, and device controls.
 """
 
 from __future__ import annotations

@@ -1,10 +1,25 @@
-"""
-FinalLinearSolver tabular beta-update ablation for deterministic and stochastic 5x5 grids.
+"""Produce the thesis occupancy-parameter ablation on the 5 x 5 grids.
 
-The script writes CSV results after every completed candidate so interrupted
-runs can be resumed with --resume. Candidate evaluation records only solver
-success rate, greedy success rate, solver average reward, greedy average
-reward, and elapsed runtime, plus the parameters needed to identify each run.
+Scientific role
+---------------
+This thesis-facing entry point compares the complete and diagonal Generalized
+FOGAS updates with variants without preconditioning or stabilization and with
+first-order or regularized-best-response alternatives. Deterministic and
+stochastic tabular grids provide good coverage, isolating the update rule from
+representation and partial-coverage effects.
+
+Inputs and outputs
+------------------
+The fixed inputs are ``5grid.csv`` and ``5grid_stochastic.csv`` under
+``data/datasets/generalization``. Candidate, best-row, and grouped statistics
+CSVs are written to ``data/results/generalization/ablations/beta`` and are
+loaded by ``notebooks/ablations.ipynb``. Each completed candidate is written
+immediately so an interrupted search retains its finished work.
+
+Run this file directly from the repository root. Use ``--problem`` to select
+the environment, ``--max-runs`` for a smoke test, and ``--resume`` for a long
+search. Candidate metrics include solver/greedy success and reward together
+with the parameters and runtime needed to identify the run.
 """
 
 from __future__ import annotations
@@ -241,6 +256,7 @@ def configure_worker_threads(torch_threads):
         pass
 
 
+# Controlled environments and fair beta-update candidate grids.
 def state_to_pos(s):
     return divmod(int(s), GRID_SIZE)
 
@@ -596,6 +612,7 @@ def base_row(candidate, device, status="ok", error=""):
     return row
 
 
+# Matched solver/greedy rollout evaluation for one completed candidate.
 def greedy_policy(pi):
     pi = pi.to(dtype=torch.float64)
     greedy = torch.zeros_like(pi)
@@ -740,6 +757,7 @@ def failed_worker_row(candidate, exc):
     return base_row(candidate, DEVICE, status="failed", error=repr(exc))
 
 
+# Stable checkpoint ordering, aggregation, and resumable search orchestration.
 def ordered_results_frame(results):
     df = pd.DataFrame(results)
     if df.empty:

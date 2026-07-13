@@ -1,9 +1,25 @@
-"""
-Continuous-observation FOGAS RBF grid search for MountainCar.
+"""Produce the RBF Generalized FOGAS result for Mountain Car.
 
-This script uses the generic ContinuousFinalParametrizedSolver on the
-continuous MountainCar dataset and evaluates candidates by rollout mean steps.
-Lower greedy_mean_steps is better, with solver_mean_steps used as the tie-break.
+Scientific role
+---------------
+This thesis-facing search applies ``ContinuousFinalParametrizedSolver``
+directly to Mountain Car observations with RBF parametrizations for the
+residual-weighting function, action-value function, and discrete-action
+policy. It provides the linear generalized result compared with RBF FOGAS and
+with the neural Generalized FOGAS extension in the thesis table.
+
+Inputs and outputs
+------------------
+The fixed input is
+``data/results/generalization/mountain_car/mountaincar_data_obs_columns.csv``.
+Candidate, best-row, and evaluation-checkpoint CSVs are written to the same
+result directory and support the RBF section of ``notebooks/mountaincar.ipynb``.
+
+Run directly from the repository root. Candidates are ranked by greedy-policy
+episode length with solver-policy episode length as the tie-break; lower is
+better because episodes stop at 200 steps. Use ``--max-runs`` for a smoke test,
+``--resume`` for the full search, and ``--help`` for worker, device, feature,
+and time-budget controls.
 """
 
 from __future__ import annotations
@@ -190,6 +206,7 @@ def set_seed(seed):
         torch.mps.manual_seed(seed)
 
 
+# Fixed continuous-observation dataset and RBF candidate-grid preparation.
 def prepare_dataset(dataset_path):
     dataset_path = Path(dataset_path)
     if not dataset_path.exists():
@@ -507,6 +524,7 @@ def base_row(params, device, status="ok", error=""):
     return row
 
 
+# RBF solver construction and matched solver/greedy rollout evaluation.
 def make_solver(
     dataset_path,
     device,
@@ -755,6 +773,7 @@ def run_candidate(
     return row, checkpoint_rows
 
 
+# Device-isolated candidate execution and parent-owned checkpoint aggregation.
 def run_candidate_worker(
     params,
     dataset_path,

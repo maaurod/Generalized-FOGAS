@@ -1,9 +1,23 @@
-"""
-FinalLinearSolver policy ablation for the deterministic 10x10 tabular grid.
+"""Run the additional policy-update ablation on the 10 x 10 grid.
 
-The script mirrors the 5-grid policy ablation while using the deterministic
-10-grid MDP and fixed Generalized FOGAS hyperparameters from the 10-grid
-dataset-grid experiment.
+Scientific role
+---------------
+This supplementary diagnostic mirrors the thesis-facing 5 x 5 comparison of
+Adam, SGD, natural policy gradient, and sampled policy expectations. It uses
+the deterministic 10 x 10 tabular MDP and the fixed Generalized FOGAS
+configuration selected for the partial-coverage experiment.
+
+Inputs and outputs
+------------------
+The script reads ``data/datasets/generalization/10grid_tabular_new.csv`` and
+writes candidate, best-row, aggregate, and learning-curve CSVs under
+``data/results/generalization/ablations/policy/10grid``. The final thesis
+policy-ablation figures instead use the 5 x 5 outputs loaded by
+``notebooks/ablations.ipynb``.
+
+Run this file directly from the repository root. It supports ``--max-runs``
+for smoke tests, ``--resume`` for checkpointed searches, and worker/device
+options for the full additional experiment.
 """
 
 from __future__ import annotations

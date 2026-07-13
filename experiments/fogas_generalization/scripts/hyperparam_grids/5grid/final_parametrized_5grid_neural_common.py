@@ -1,9 +1,23 @@
-"""
-Shared FinalParametrizedSolver neural grid-search utilities for 5x5 grids.
+"""Shared neural Generalized FOGAS searches for the 5 x 5 grids.
 
-This mirrors the FinalLinearSolver RBF search but uses small tanh MLP
-parametrizations for u_beta, Q_theta, and the policy. It writes results after
-every candidate and can shard candidates across multiple GPU worker processes.
+Scientific role
+---------------
+This helper mirrors the linear-RBF search with small tanh MLP parametrizations
+for the residual-weighting function, action-value function, and policy. The
+deterministic and stochastic searches are additional finite-state nonlinear
+experiments supporting ``notebooks/grids_nn.ipynb``; the main nonlinear thesis
+result is the continuous-state Mountain Car study.
+
+Inputs and outputs
+------------------
+The entry points read ``5grid.csv`` or ``5grid_stochastic.csv`` from
+``data/datasets/generalization`` and write candidate plus best-row tables to
+``data/results/generalization/hyperparam_grids/5grid``.
+
+This common module is not executed directly. Run one of the two neural
+``grid_search_final_parametrized_5grid_*.py`` wrappers from the repository
+root. Results are saved after every candidate; the search supports resumed
+execution and can distribute candidates across GPU worker processes.
 """
 
 from __future__ import annotations

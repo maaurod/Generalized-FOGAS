@@ -1,9 +1,23 @@
-"""
-Shared FinalLinearSolver RBF grid-search utilities for 5x5 generalization grids.
+"""Shared linear-RBF search infrastructure for the 5 x 5 grids.
 
-The two entrypoint scripts choose the deterministic or stochastic 5x5 problem.
-This module owns the common grid, RBF features, metrics, resume logic, and
-worker execution so both searches produce comparable CSV files.
+Scientific role
+---------------
+This helper evaluates ``FinalLinearSolver`` with RBF state and state--action
+features on deterministic and stochastic 5 x 5 problems. These searches are
+additional representation experiments: they complement the tabular thesis
+ablations and the representative RBF runs in ``notebooks/grids_param.ipynb``.
+
+Inputs and outputs
+------------------
+The entry points read ``5grid.csv`` or ``5grid_stochastic.csv`` from
+``data/datasets/generalization``. Candidate and best-row CSVs are written to
+``data/results/generalization/hyperparam_grids/5grid`` with problem-specific
+names.
+
+This common module is not executed directly. Run the deterministic or
+stochastic ``grid_search_final_linear_5grid_*rbf.py`` wrapper from the
+repository root. Both wrappers support smoke tests, resumed execution, and
+worker/device controls while the parent process owns result writes.
 """
 
 from __future__ import annotations

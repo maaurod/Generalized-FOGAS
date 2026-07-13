@@ -1,9 +1,22 @@
-"""
-FinalLinearSolver theta ablation for the deterministic 10x10 tabular grid.
+"""Run the additional value-parameter ablation on the 10 x 10 grid.
 
-The script mirrors the 5-grid theta ablation while using the deterministic
-10-grid MDP and fixed Generalized FOGAS hyperparameters from the 10-grid
-dataset-grid experiment.
+Scientific role
+---------------
+This supplementary diagnostic repeats the 5 x 5 study of the approximate
+value-parameter best response on the deterministic 10 x 10 tabular MDP. It
+varies initialization, inner optimization, regularization, and projection
+while keeping the remaining Generalized FOGAS configuration aligned with the
+partial-coverage experiment.
+
+Inputs and outputs
+------------------
+The fixed input is ``data/datasets/generalization/10grid_tabular_new.csv``.
+Candidate, best-row, aggregate, and checkpoint CSVs are written under
+``data/results/generalization/ablations/theta/10grid``. The thesis figures use
+the corresponding 5 x 5 outputs rather than this additional diagnostic.
+
+Run this file directly from the repository root. It supports ``--max-runs``,
+``--resume``, and worker/device controls for the full search.
 """
 
 from __future__ import annotations

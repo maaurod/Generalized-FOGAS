@@ -1,9 +1,22 @@
-"""
-Stochastic 10-grid FOGAS dataset-generation search.
+"""Run the additional FOGAS coverage sweep on the stochastic 10 x 10 grid.
 
-The script searches dataset collection settings for the stochastic 10x10
-tabular grid while keeping the evaluation MDP and FOGAS hyperparameters fixed.
-Generated datasets are temporary files under /tmp; only result CSVs are saved.
+Scientific role
+---------------
+This supplementary experiment varies offline dataset collection for original
+FOGAS under stochastic grid transitions. It extends the deterministic
+partial-coverage protocol but is not one of the main thesis comparison tables.
+FOGAS hyperparameters and the evaluation MDP remain fixed while data size,
+exploration, policy mixture, and reset conditions change.
+
+Inputs and outputs
+------------------
+Candidate datasets are created as temporary files under ``/tmp`` and removed
+after evaluation. Only the checkpointed search and best-row CSVs are retained
+under ``data/results/generalization/hyperparam_grids/10grid``.
+
+Run this file directly from the repository root. Use ``--max-datasets`` for a
+smoke test, ``--resume`` for the additional full sweep, and the worker/device
+options described by ``--help``. The parent process serializes CSV writes.
 """
 
 from __future__ import annotations

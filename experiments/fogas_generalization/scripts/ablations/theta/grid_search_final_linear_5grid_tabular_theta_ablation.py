@@ -1,10 +1,23 @@
-"""
-FinalLinearSolver tabular theta-update ablation for deterministic and stochastic 5x5 grids.
+"""Produce the thesis value-parameter ablation on the 5 x 5 grids.
 
-The script writes CSV results after every completed candidate so interrupted
-runs can be resumed with --resume. It also evaluates policy checkpoints every
-20 solver iterations and writes both raw learning curves and grouped curve
-statistics.
+Scientific role
+---------------
+This thesis-facing entry point studies how Generalized FOGAS approximates the
+regularized value-parameter best response. It compares warm and zero starts,
+the number of inner optimizer steps, quadratic regularization strength, and
+projection-based alternatives on deterministic and stochastic tabular grids.
+
+Inputs and outputs
+------------------
+The script reads the fixed ``5grid.csv`` and ``5grid_stochastic.csv`` datasets.
+It writes candidate results, selected rows, aggregate statistics, raw
+checkpoint curves, and grouped curve statistics to
+``data/results/generalization/ablations/theta``. ``notebooks/ablations.ipynb``
+loads these tables for the value-update panels.
+
+Run this file directly from the repository root. Completed candidates are
+written immediately; use ``--max-runs`` for a smoke test and ``--resume`` for
+the exhaustive search. Checkpoints are evaluated every 20 solver iterations.
 """
 
 from __future__ import annotations
@@ -182,6 +195,7 @@ def configure_worker_threads(torch_threads):
         pass
 
 
+# Controlled environments and value-best-response candidate construction.
 def state_to_pos(s):
     return divmod(int(s), GRID_SIZE)
 
@@ -493,6 +507,7 @@ def base_row(candidate, device, status="ok", error=""):
     return row
 
 
+# Final and checkpointed rollout evaluation for solver and greedy policies.
 def greedy_policy(pi):
     pi = pi.to(dtype=torch.float64)
     greedy = torch.zeros_like(pi)
@@ -726,6 +741,7 @@ def failed_worker_row(candidate, exc):
     return base_row(candidate, DEVICE, status="failed", error=repr(exc)), []
 
 
+# Stable result aggregation and parent-owned checkpoint writes.
 def ordered_results_frame(results):
     df = pd.DataFrame(results)
     if df.empty:
