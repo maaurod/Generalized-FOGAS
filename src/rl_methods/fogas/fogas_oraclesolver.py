@@ -1,3 +1,12 @@
+"""
+Oracle FOGAS variant for small MDPs with exact planning information.
+
+Unlike FOGASSolver, this implementation uses a Planner to obtain exact
+discounted occupancy measures instead of estimating the corresponding terms
+from an offline dataset. It is useful for algorithm checks and small tabular
+experiments where exact MDP quantities are available.
+"""
+
 import random
 
 import numpy as np

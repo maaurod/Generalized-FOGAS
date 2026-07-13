@@ -1,3 +1,14 @@
+"""
+Gymnasium dataset collection for discretized continuous-control experiments.
+
+`GymDataBuffer` collects FOGAS-format transitions from environments that are
+not represented by an explicit finite transition matrix. It differs from
+`DiscreteDataBuffer` by stepping a Gymnasium environment, using state/action
+discretizers, and mixing policy-driven with random behavior. It is used for
+Mountain Car style experiments where offline data are generated from simulated
+continuous dynamics.
+"""
+
 from __future__ import annotations
 
 from typing import Optional

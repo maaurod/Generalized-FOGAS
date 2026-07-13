@@ -1,8 +1,13 @@
-"""Continuous-observation FOGAS dataset loader.
+"""Continuous-observation dataset adapter for FOGAS-style solvers.
 
 Rows store ``(observation, action, reward, next_observation, done)``.  The
 observation columns follow a prefix convention by default:
 ``obs_0, obs_1, ...`` and ``next_obs_0, next_obs_1, ...``.
+
+This loader is algorithm-specific: it keeps continuous offline data in the
+tensor layout expected by the continuous generalized FOGAS solver. In the
+experiments it is used for Mountain Car style datasets, while the original
+tabular FOGASSolver uses ``FOGASDataset``.
 """
 
 from __future__ import annotations

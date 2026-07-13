@@ -1,3 +1,13 @@
+"""
+Empirical FOGAS solver for finite state-action experiments.
+
+This module contains the main original FOGAS training loop. It differs from the
+dataset and evaluator modules by owning optimization state: feature tensors,
+empirical covariance, reward-weight estimation, lambda/theta updates, and the
+learned stochastic policy. It is used directly in the tabular gridworld and
+discretized Mountain Car FOGAS experiments.
+"""
+
 import torch
 import random
 import numpy as np

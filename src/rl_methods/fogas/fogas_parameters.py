@@ -16,6 +16,9 @@ If the user overrides T, alpha, eta, rho, or D_theta,
 the summary printout will show a comparison between:
 
     theoretical_value  (overridden → new_value)
+
+The class is intentionally separate from FOGASSolver so experiments can inspect
+or override the theoretical defaults without changing the solver loop.
 """
 
 import numpy as np

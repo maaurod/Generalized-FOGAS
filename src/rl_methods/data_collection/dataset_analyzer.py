@@ -2,7 +2,13 @@
 DatasetAnalyzer
 ---------------
 
-Small, data-only analyzer for discrete offline RL datasets.
+Dataset diagnostics for FOGAS-style offline transition data.
+
+This module reads a CSV path or DataFrame with at least `state` and `action`
+columns, then reports empirical coverage, reward statistics, and feature
+coverage ratios. It differs from the buffer modules because it never samples
+new transitions; it only measures datasets already produced by gridworld or
+Gymnasium collection.
 """
 
 from pathlib import Path

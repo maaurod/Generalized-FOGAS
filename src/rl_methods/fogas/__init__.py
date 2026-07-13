@@ -1,4 +1,11 @@
-"""FOGAS algorithm exports."""
+"""
+Exports for the original FOGAS method and its experiment utilities.
+
+The package exposes the empirical FOGAS solver, FOGAS-specific dataset
+adapters, theoretical parameter helper, evaluator, hyperparameter optimizer,
+and oracle solver. Generalized FOGAS and FQI reuse several of these utilities
+so comparisons share the same dataset and evaluation conventions.
+"""
 
 from .fogas_solver import FOGASSolver
 from .fogas_evaluator import FOGASEvaluator

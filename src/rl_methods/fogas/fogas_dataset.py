@@ -2,8 +2,11 @@
 FOGASDataset
 ------------
 
-Utility for loading and validating offline RL datasets for discrete MDPs.
-Expected CSV columns:
+Discrete dataset adapter for FOGAS-format offline transitions.
+
+This module does not generate data. It validates a saved CSV and exposes the
+columns as tensors used by FOGASSolver, discrete generalized FOGAS solvers, and
+FQI comparison code. Expected CSV columns:
     state, action, reward, next_state
 """
 

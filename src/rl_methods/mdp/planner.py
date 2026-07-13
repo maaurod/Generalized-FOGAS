@@ -1,3 +1,14 @@
+"""
+Exact dynamic-programming utilities for `DiscreteMDP`.
+
+`Planner` is separated from the MDP container because value iteration, policy
+iteration, policy evaluation, optimal Q-functions, and discounted occupancy
+measures are oracle computations rather than part of the environment
+definition. The FOGAS-family experiments use this module for small tabular
+models where exact references are feasible; large or feature-only settings
+avoid this layer and use `FeaturesMDP` plus offline data instead.
+"""
+
 import torch
 
 

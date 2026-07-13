@@ -1,3 +1,13 @@
+"""
+Discretizers connecting continuous Gymnasium environments to finite MDP APIs.
+
+`StateDiscretizer` maps continuous observations into uniform grid cells and can
+append an absorbing terminal state. `ActionDiscretizer` maps internal action
+ids to the actual values sent to the Gymnasium environment. These classes are
+used with `GymDataBuffer` and `FeaturesMDP` when collecting Mountain Car style
+offline datasets.
+"""
+
 from __future__ import annotations
 
 from typing import Callable, Optional, Sequence

@@ -1,3 +1,12 @@
+"""
+Hyperparameter search helper for FOGAS experiments.
+
+This module owns candidate generation and result bookkeeping, while the solver
+performs training and FOGASEvaluator supplies the objective metric. It supports
+plain grids, random search, and lightweight Gaussian-process guided refinement
+for the tabular FOGAS experiments.
+"""
+
 import inspect
 import itertools
 from pathlib import Path

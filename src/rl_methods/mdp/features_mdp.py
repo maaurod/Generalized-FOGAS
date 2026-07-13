@@ -1,3 +1,14 @@
+"""
+Feature-only MDP descriptions for offline FOGAS-style methods.
+
+This module provides the minimal finite-environment interface needed when the
+full transition model is not known or not used. `FeaturesMDP` keeps states,
+actions, discount factor, initial state, and a state-action feature table, while
+`TabularFeatureMap` supplies one-hot features for tabular studies. It is used
+by continuous/discretized experiments and by FOGAS-family solvers that only
+require features and offline transitions.
+"""
+
 from __future__ import annotations
 
 import torch

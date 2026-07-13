@@ -1,3 +1,12 @@
+"""
+Policy evaluation and diagnostics for FOGAS-family solvers.
+
+The evaluator is shared by original FOGAS, generalized FOGAS, and some baseline
+comparisons. It differs from the solver by never updating parameters: it only
+extracts solver or greedy policies and measures returns, success rates, value
+quality, trajectories, and reward approximation against an optional Planner.
+"""
+
 import random
 
 import matplotlib.colors as mcolors

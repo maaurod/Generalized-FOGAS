@@ -7,7 +7,10 @@ Offline dataset builder for finite DiscreteMDP-style objects.
 The buffer simulates directly from an MDP transition matrix and reward vector.
 It intentionally does not accept Gym environments, environment names, or
 planners. Planner-owned quantities such as policies and occupancy measures
-must be passed explicitly.
+must be passed explicitly. FOGAS and generalized FOGAS gridworld experiments
+use this module to generate reproducible CSV datasets under random, optimal,
+epsilon-greedy, mixed-policy, occupancy-based, and coarse/fine collection
+schemes.
 """
 
 from __future__ import annotations
