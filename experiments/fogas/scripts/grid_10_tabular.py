@@ -1,8 +1,15 @@
-"""
-FOGAS hyperparameter grid search for the 10x10 tabular four-room problem.
+"""Tune FOGAS on the fixed 10 x 10 tabular four-room experiment.
 
-The script writes results after every candidate so completed runs survive
-interruptions. Use --max-runs for a quick smoke test.
+This script varies the FOGAS optimization parameters while keeping the MDP,
+feature map, and offline dataset fixed. It therefore studies optimization
+sensitivity, unlike ``grid_search_10grid_fogas.py``, which fixes the solver and
+varies how the dataset is generated. The selected configurations support the
+10-grid analysis in ``experiments/fogas/notebooks/10grid_tabular.ipynb``.
+
+Run from the repository root with
+``python3 experiments/fogas/scripts/grid_10_tabular.py``. Use ``--resume`` to
+skip completed candidates and ``--max-runs N`` for a short validation run. The
+full table and best successful row are written to ``data/results/grids/``.
 """
 
 import argparse

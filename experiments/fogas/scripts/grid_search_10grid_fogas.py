@@ -1,7 +1,16 @@
-"""
-FOGAS dataset grid search for the clean 10x10 tabular grid.
+"""Measure FOGAS sensitivity to offline-data coverage on the 10 x 10 grid.
 
-The dataset grid is intentionally mirrored by grid_search_10grid_fqi.py.
+For each candidate, this script rebuilds the tabular MDP, generates a dataset,
+runs FOGAS with fixed hyperparameters, and records feature coverage, return,
+success, on-data quality, and value gaps. Dataset size, epsilon exploration,
+optimal/random policy proportion, and reset distribution are varied. The grid
+is intentionally identical to ``grid_search_10grid_fqi.py`` so the comparison
+in ``notebooks/10grid_tabular.ipynb`` uses matched data-generation conditions.
+
+Run from the repository root with
+``python3 experiments/fogas/scripts/grid_search_10grid_fogas.py``. Results are
+checkpointed after every candidate in
+``data/results/10grid_tabular/fogas_dataset_grid.csv``.
 """
 
 import itertools

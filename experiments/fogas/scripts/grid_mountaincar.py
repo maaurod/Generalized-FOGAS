@@ -1,3 +1,20 @@
+"""Compare FOGAS and FQI on matched discretized Mountain Car datasets.
+
+The experiment first learns a near-optimal tabular Q-learning policy, uses one
+of its trajectories to define a custom reset distribution, and collects fixed
+Gymnasium datasets from mixtures of that policy and random behavior. It then
+trains FOGAS and FQI with the same action-block RBF features while varying the
+behavior mixture, epsilon, and nominal-start/custom-reset proportions. This is
+the batch producer for the final analysis in
+``experiments/fogas/notebooks/mountainCar.ipynb``.
+
+Run from the repository root with
+``python3 experiments/fogas/scripts/grid_mountaincar.py``. Each completed
+configuration is checkpointed to
+``data/results/mountainCar/grids/grid_mountaincar.csv``; temporary transition
+datasets are removed when the run finishes.
+"""
+
 import json
 import os
 import random

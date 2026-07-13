@@ -1,7 +1,16 @@
-"""
-FQI dataset grid search for the clean 10x10 tabular grid.
+"""Evaluate FQI on the matched 10 x 10 offline-dataset grid.
 
-The dataset grid is intentionally mirrored by grid_search_10grid_fogas.py.
+This is the baseline companion to ``grid_search_10grid_fogas.py``. It varies
+the same dataset size, exploration, behavior-policy mixture, and reset
+distribution, then trains linear FQI with fixed hyperparameters. Coverage and
+policy metrics use the same planner and evaluator definitions as the FOGAS
+search, permitting the controlled comparison presented in
+``notebooks/10grid_tabular.ipynb``.
+
+Run from the repository root with
+``python3 experiments/fogas/scripts/grid_search_10grid_fqi.py``. Results are
+checkpointed after every candidate in
+``data/results/10grid_tabular/fqi_dataset_grid.csv``.
 """
 
 import itertools

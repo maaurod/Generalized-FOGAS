@@ -1,3 +1,18 @@
+"""Run the extended 10 x 10 FOGAS dataset study as an unattended batch job.
+
+This script crosses dataset size, epsilon, behavior-policy proportions, and
+initial-state distributions, then reports feature coverage, goal convergence,
+return, and exact occupancy-weighted value and Q gaps. It is the broad batch
+counterpart to the focused searches in this folder, and its aggregate table is
+used by the final coverage comparison in
+``experiments/fogas/notebooks/10grid_tabular.ipynb``.
+
+Run from the repository root, directly or inside a scheduler allocation, with
+``python3 experiments/fogas/scripts/grid_search_sbatch.py``. The script has no
+command-line grid options; edit the module-level grids before submission. It
+writes ``data/results/grids/grid_search_results_sbatch.csv`` after the search.
+"""
+
 import os
 import numpy as np
 import random

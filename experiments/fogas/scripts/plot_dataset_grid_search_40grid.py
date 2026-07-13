@@ -1,24 +1,29 @@
-"""
-Plot results from the 40-grid dataset-variation grid search.
-=============================================================
+"""Present the three 40 x 40 dataset-coverage experiment families.
+
+This analysis-only script reads the tables produced by
+``grid_search_dataset_40grid.py`` and plots convergence, distance to the goal,
+return, and the occupancy-weighted value gap. It does not train a solver or
+generate data; it is the non-interactive figure companion to the 40-grid
+notebook analysis.
 
 Usage
 -----
-  python plot_dataset_grid_search_40grid.py                  # looks in current dir
-  python plot_dataset_grid_search_40grid.py --results_dir /path/to/csvs
-  python plot_dataset_grid_search_40grid.py --save          # save PNGs instead of showing
+  python3 experiments/fogas/scripts/plot_dataset_grid_search_40grid.py \
+      --results_dir data/results/grids
+  python3 experiments/fogas/scripts/plot_dataset_grid_search_40grid.py \
+      --results_dir data/results/grids --save
 
 Expected input files
 ---------------------
-  grid_search_dataset_40grid_A.csv   – Family A (manual augmentation)
-  grid_search_dataset_40grid_B.csv   – Family B (epsilon variation)
-  grid_search_dataset_40grid_C.csv   – Family C (random-start policy coverage)
+  grid_search_dataset_40grid_A.csv: Family A, manual augmentation
+  grid_search_dataset_40grid_B.csv: Family B, epsilon variation
+  grid_search_dataset_40grid_C.csv: Family C, random-start policy coverage
 
 Each figure shows 4 sub-plots:
   1. Convergence rate (binary 0/1, can be averaged over repeated seeds)
   2. Convergence distance (how far from goal the final state is)
   3. Final Reward
-  4. V-Optimality Gap  (E_{s~d_π*}[V*(s) - V^π(s)])
+  4. V-optimality gap under the optimal state occupancy
 """
 
 import argparse

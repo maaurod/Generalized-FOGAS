@@ -1,14 +1,17 @@
-"""
-FOGAS Hyperparameter Grid Search — 40×40 Grid
-==============================================
-Sweeps alpha and eta (multiply / divide the base values by
-100, 50, 20, 10, 5, 2, 1, 1/2, 1/5, 1/10, 1/20, 1/50, 1/100)
-keeping only pairs where alpha > eta  (algorithmic requirement).
+"""Tune FOGAS step sizes for the 40 x 40 RBF grid experiment.
 
-Outputs
--------
-  grid_search_results_fogas_40grid.csv   — metrics for every valid pair
-  grid_search_paths_fogas_40grid.pt      — full path tensors (torch dict)
+The MDP, RBF feature map, offline dataset, regularization, and iteration count
+are held fixed while ``alpha`` and ``eta`` are scaled around reference values;
+only candidates satisfying ``alpha > eta`` are retained. Each run records
+convergence, return, goal attainment, and the learned trajectory. This search
+selects solver settings for the 40-grid scalability and dataset-coverage study,
+whereas ``grid_search_dataset_40grid.py`` keeps those settings fixed and varies
+the dataset itself.
+
+Run from the repository root with
+``python3 experiments/fogas/scripts/grid_search_fogas_40grid.py`` after creating
+``data/datasets/large_40grid/40grid.csv``. Metrics and serialized trajectories
+are written to ``data/results/grids/`` as CSV and JSON files.
 """
 
 import os

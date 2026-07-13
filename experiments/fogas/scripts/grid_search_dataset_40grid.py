@@ -1,6 +1,18 @@
 """
 FOGAS Dataset-Variation Grid Search — 40×40 Grid
 =================================================
+This batch experiment studies offline support after the 40-grid FOGAS
+optimization parameters have been selected. It differs from
+``grid_search_fogas_40grid.py`` by holding the solver fixed and changing only
+the dataset. The resulting tables support the coverage and scalability analysis
+associated with ``notebooks/large_40.ipynb`` and are plotted by
+``plot_dataset_grid_search_40grid.py``.
+
+Run from the repository root with
+``python3 experiments/fogas/scripts/grid_search_dataset_40grid.py``. The three
+experiment families are executed sequentially and saved under
+``data/results/grids/``.
+
 Three independent experiment families that test how robust convergence is
 when the dataset composition changes, while keeping the algorithm hyper-
 parameters fixed at values that are known to converge.
